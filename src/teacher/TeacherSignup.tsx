@@ -1,4 +1,3 @@
-// src/Auth/TeacherSignup.tsx
 import React, { useState } from "react";
 import {
   View,
@@ -9,62 +8,64 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../firebase";
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 export default function TeacherSignup({ navigation }: any) {
   const [form, setForm] = useState({
     name: "",
     email: "",
     password: "",
+    confirmPassword: "",
   });
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const handleChange = (key: string, value: string) => {
     setForm({ ...form, [key]: value });
   };
 
-const handleSignup = async () => {
-  const { name, email, password } = form;
-  if (!name || !email || !password) {
-    Alert.alert("Error", "Please fill in all fields.");
-    return;
-  }
+  const handleSignup = async () => {
+    const { name, email, password, confirmPassword } = form;
+    if (!name || !email || !password || !confirmPassword) {
+      Alert.alert("Error", "Please fill in all fields.");
+      return;
+    }
 
-  setLoading(true);
-  try {
-    // ✅ Create Firebase Auth user
-    const userCred = await createUserWithEmailAndPassword(auth, email, password);
+    if (password !== confirmPassword) {
+      Alert.alert("Error", "Passwords do not match.");
+      return;
+    }
 
-    // ✅ Save teacher account in Firestore
-    await setDoc(doc(db, "teacherAccounts", userCred.user.uid), {
-      uid: userCred.user.uid,
-      name,
-      email,
-      role: "teacher",
-      createdAt: new Date(),
-    });
+    setLoading(true);
+    try {
+      const userCred = await createUserWithEmailAndPassword(auth, email, password);
 
-    Alert.alert("Success", "Teacher account created! Please log in.");
+      await setDoc(doc(db, "teacherAccounts", userCred.user.uid), {
+        uid: userCred.user.uid,
+        name,
+        email,
+        role: "teacher",
+        createdAt: serverTimestamp(),
+      });
 
-    // ✅ Force sign out so teacher must log in
-    await auth.signOut();
+      Alert.alert("Success", "Teacher account created! Please log in.");
+      await auth.signOut();
+      setForm({ name: "", email: "", password: "", confirmPassword: "" });
 
-    setForm({ name: "", email: "", password: "" });
-
-    // ✅ Reset navigation to Login (no back button)
-    navigation.reset({
-      index: 0,
-      routes: [{ name: "Login" }],
-    });
-  } catch (err: any) {
-    Alert.alert("Signup Error", err.message);
-  } finally {
-    setLoading(false);
-  }
-};
-
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Login" }],
+      });
+    } catch (err: any) {
+      Alert.alert("Signup Error", err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -86,24 +87,40 @@ const handleSignup = async () => {
         style={styles.input}
       />
 
-      <TextInput
-        placeholder="Password (min. 6 chars)"
-        value={form.password}
-        onChangeText={(text) => handleChange("password", text)}
-        secureTextEntry
-        style={styles.input}
-      />
+      {/* Password */}
+      <View style={styles.passwordContainer}>
+        <TextInput
+          placeholder="Password (min. 6 chars)"
+          value={form.password}
+          onChangeText={(text) => handleChange("password", text)}
+          secureTextEntry={!showPassword}
+          style={[styles.input, { flex: 1, marginBottom: 0 }]}
+        />
+        <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+          <Ionicons name={showPassword ?  "eye" : "eye-off"} size={22} color="#555" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Confirm Password */}
+      <View style={styles.passwordContainer}>
+        <TextInput
+          placeholder="Confirm Password"
+          value={form.confirmPassword}
+          onChangeText={(text) => handleChange("confirmPassword", text)}
+          secureTextEntry={!showConfirm}
+          style={[styles.input, { flex: 1, marginBottom: 0 }]}
+        />
+        <TouchableOpacity onPress={() => setShowConfirm(!showConfirm)} style={styles.eyeIcon}>
+          <Ionicons name={showConfirm ? "eye" : "eye-off"} size={22} color="#555" />
+        </TouchableOpacity>
+      </View>
 
       <TouchableOpacity
         style={[styles.btn, loading && { opacity: 0.7 }]}
         onPress={handleSignup}
         disabled={loading}
       >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.btnText}>Sign Up</Text>
-        )}
+        {loading ? <ActivityIndicator color="#007AFF" /> : <Text style={styles.btnText}>Sign Up</Text>}
       </TouchableOpacity>
 
       <TouchableOpacity onPress={() => navigation.navigate("Login")}>
@@ -135,6 +152,16 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "#fff",
     marginBottom: 15,
+  },
+  passwordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 15,
+  },
+  eyeIcon: {
+    position: "absolute",
+    right: 15,
   },
   btn: {
     backgroundColor: "#fff",

@@ -18,9 +18,6 @@ export default function SignupScreen({ navigation }: any) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
-  const [studentId, setStudentId] = useState("");
-  const [grade, setGrade] = useState("");
-  const [section, setSection] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -39,9 +36,6 @@ export default function SignupScreen({ navigation }: any) {
         role: "student",
         name,
         email,
-        studentId,
-        grade,
-        section,
         createdAt: new Date(),
       });
 
@@ -56,12 +50,6 @@ export default function SignupScreen({ navigation }: any) {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <TextInput
-        placeholder="Student ID No."
-        value={studentId}
-        onChangeText={setStudentId}
-        style={styles.input}
-      />
       <TextInput
         placeholder="Full Name"
         value={name}
@@ -104,19 +92,6 @@ export default function SignupScreen({ navigation }: any) {
           <Ionicons name={showConfirmPassword ? "eye" : "eye-off"} size={22} color="#555" />
         </TouchableOpacity>
       </View>
-
-      <TextInput
-        placeholder="Grade"
-        value={grade}
-        onChangeText={setGrade}
-        style={styles.input}
-      />
-      <TextInput
-        placeholder="Section"
-        value={section}
-        onChangeText={setSection}
-        style={styles.input}
-      />
 
       <View style={styles.buttonWrapper}>
         <Button title="Sign Up" onPress={handleSignup} />
