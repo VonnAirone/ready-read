@@ -22,6 +22,8 @@ import GameMenuScreen from "./src/screens/student/MenuScreen";
 import CreatePlayername from "./src/screens/student/CreatePlayerName";
 import Join from "./src/screens/student/Join";
 import Read from "./src/screens/student/Read";
+import Leaderboard from "./src/screens/Leaderboard";
+import Start from "./src/screens/student/Start";
 
 const Stack = createNativeStackNavigator();
 
@@ -76,6 +78,7 @@ export default function App() {
             <Stack.Screen name="AddPronunciation" component={AddPronunciation} />
             <Stack.Screen name="Modify" component={ModifyPronunciation} />
             <Stack.Screen name="Room" component={Room} />
+            <Stack.Screen name="Leaderboard" component={Leaderboard} />
           </>
         ) : role === "student" ? (
           // 🔹 Student Stack
@@ -83,6 +86,7 @@ export default function App() {
             <Stack.Screen name="CreatePlayerName" component={CreatePlayername} />
             <Stack.Screen name="Room" component={Room} />
             <Stack.Screen name="GameMenu" component={GameMenuScreen} />
+            <Stack.Screen name="Start" component={Start} />
             <Stack.Screen name="Join" component={Join} />
             <Stack.Screen name="Read" component={Read} />
           </>

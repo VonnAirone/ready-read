@@ -65,7 +65,7 @@ export default function Room() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Your Created Rooms</Text>
+      <Text style={styles.title}>Rooms</Text>
 
       {rooms.length === 0 ? (
         <Text style={styles.subtitle}>No rooms created yet.</Text>
@@ -93,9 +93,8 @@ export default function Room() {
                 {/* Delete Icon */}
                 <TouchableOpacity onPress={() => handleDelete(item.id)}>
                     <Ionicons name="trash" size={24} color="red" />
-                </TouchableOpacity>
-                </TouchableOpacity>
-
+              </TouchableOpacity>
+            </TouchableOpacity>
           )}
         />
       )}
@@ -112,6 +111,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: "bold",
+    marginTop: 50,
     marginBottom: 15,
     textAlign: "center",
   },

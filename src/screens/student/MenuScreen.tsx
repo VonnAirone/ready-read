@@ -79,7 +79,7 @@ export default function GameMenuScreen({ navigation }: any) {
       <View style={styles.buttonContainer}>
         <TouchableOpacity
           style={[styles.menuButton, { backgroundColor: "#34C759" }]} // ✅ Green Play
-          onPress={() => Alert.alert("PLAY")}
+          onPress={() => navigation.navigate("Start")}
         >
           <Text style={styles.buttonText}>▶ PLAY</Text>
         </TouchableOpacity>
