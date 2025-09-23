@@ -1,5 +1,6 @@
 // src/Auth/Login.tsx
 import React, { useState } from "react";
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   View,
   TextInput,
@@ -43,7 +44,10 @@ const handleLogin = async () => {
 
 
   return (
-    <View style={styles.container}>
+    <LinearGradient
+      colors={["#8C52FF", "#543199"]}
+      style={styles.container}
+    >
       <View style={styles.box}>
         <Text style={styles.logo}>🎮</Text>
         <Text style={styles.title}>Login</Text>
@@ -88,7 +92,7 @@ const handleLogin = async () => {
           </Text>
         </TouchableOpacity>
       </View>
-    </View>
+  </LinearGradient>
   );
 }
 
@@ -97,7 +101,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#007AFF",
+    // backgroundColor: "#007AFF", // replaced by LinearGradient
     padding: 20,
   },
   box: {
