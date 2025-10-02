@@ -9,7 +9,7 @@ import {
   ImageBackground,
 } from "react-native";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth, db } from "../../../firebase";
+import { auth, db } from "../services/firebase";
 import { doc, getDoc } from "firebase/firestore";
 
 export default function GameMenuScreen({ navigation }: any) {
@@ -79,7 +79,7 @@ export default function GameMenuScreen({ navigation }: any) {
       <View style={styles.buttonContainer}>
         <TouchableOpacity
           style={[styles.menuButton, { backgroundColor: "#34C759" }]} // ✅ Green Play
-          onPress={() => navigation.navigate("Start")}
+          onPress={() => navigation.navigate("Progress")}
         >
           <Text style={styles.buttonText}>▶ PLAY</Text>
         </TouchableOpacity>

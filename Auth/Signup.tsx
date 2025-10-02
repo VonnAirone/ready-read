@@ -7,46 +7,74 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  ActivityIndicator,
+  Text,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons"; // ✅ correct import
+import { Ionicons } from "@expo/vector-icons";
 import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { auth, db } from "../src/screens/services/firebase";
 
-export default function SignupScreen({ navigation }: any) {
+export default function Signup({ navigation }: any) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSignup = async () => {
-    if (password !== confirmPassword) {
-      Alert.alert("Error", "Passwords do not match.");
-      return;
-    }
+const handleSignup = async () => {
+  if (password !== confirmPassword) {
+    Alert.alert("Error", "Passwords do not match.");
+    return;
+  }
 
-    try {
-      const userCred = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCred.user;
+  setLoading(true);
+  try {
+    const userCred = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCred.user;
 
-      await setDoc(doc(db, "studentAccounts", user.uid), {
+    await setDoc(
+      doc(db, "studentAccounts", user.uid),
+      {
         uid: user.uid,
         role: "student",
-        name,
+        name,        // or keep as playerName if you prefer
         email,
         createdAt: new Date(),
-      });
+      },
+      { merge: false }
+    );
 
-      await signOut(auth);
+    // ✅ Immediately log them out
+    await signOut(auth);
 
-      Alert.alert("Success", "Account created successfully! Please log in.");
-      navigation.replace("Login");
-    } catch (err: any) {
+    Alert.alert("Success", "Account created successfully!", [
+      {
+        text: "OK",
+        onPress: () => navigation.replace("Login"),
+      },
+    ]);
+  } catch (err: any) {
+    if (err.code === "auth/email-already-in-use") {
+      Alert.alert(
+        "Account Exists",
+        "This email is already registered. Please log in instead.",
+        [
+          {
+            text: "OK",
+            onPress: () => navigation.replace("Login"),
+          },
+        ]
+      );
+    } else {
       Alert.alert("Signup Error", err.message);
     }
-  };
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -75,7 +103,11 @@ export default function SignupScreen({ navigation }: any) {
           style={styles.passwordInput}
         />
         <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-          <Ionicons name={showPassword ? "eye" : "eye-off"} size={22} color="#555" />
+          <Ionicons
+            name={showPassword ? "eye" : "eye-off"}
+            size={22}
+            color="#555"
+          />
         </TouchableOpacity>
       </View>
 
@@ -88,14 +120,30 @@ export default function SignupScreen({ navigation }: any) {
           onChangeText={setConfirmPassword}
           style={styles.passwordInput}
         />
-        <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-          <Ionicons name={showConfirmPassword ? "eye" : "eye-off"} size={22} color="#555" />
+        <TouchableOpacity
+          onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+        >
+          <Ionicons
+            name={showConfirmPassword ? "eye" : "eye-off"}
+            size={22}
+            color="#555"
+          />
         </TouchableOpacity>
       </View>
 
-      <View style={styles.buttonWrapper}>
-        <Button title="Sign Up" onPress={handleSignup} />
-      </View>
+      {/* ✅ Signup button with spinner */}
+      <TouchableOpacity
+        style={[styles.signupButton, loading && { opacity: 0.7 }]}
+        onPress={handleSignup}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.signupText}>Sign Up</Text>
+        )}
+      </TouchableOpacity>
+
       <View style={styles.buttonWrapper}>
         <Button
           title="Already have an account? Login"
@@ -134,6 +182,18 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 12,
     fontSize: 16,
+  },
+  signupButton: {
+    backgroundColor: "#007BFF",
+    padding: 15,
+    borderRadius: 8,
+    alignItems: "center",
+    marginVertical: 10,
+  },
+  signupText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
   buttonWrapper: {
     marginVertical: 8,

@@ -1,36 +1,38 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, Alert } from "react-native";
+import React, { useState, useEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  Alert,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { auth, db } from "../../../firebase";
-import { doc, setDoc, getDoc, collection, query, where, onSnapshot } from "firebase/firestore";
+import { auth, db } from "../services/firebase";
+import {
+  doc,
+  setDoc,
+  getDoc,
+  collection,
+  query,
+  where,
+  onSnapshot,
+  Timestamp,
+} from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { OPENAI_API_KEY } from "@env";
+import { Audio } from "expo-av";
 
-// Levenshtein distance fallback
-const levenshtein = (a: string, b: string) => {
-  const matrix = Array.from({ length: b.length + 1 }, (_, i) => [i]);
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b[i - 1] === a[j - 1]) matrix[i][j] = matrix[i - 1][j - 1];
-      else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
-    }
-  }
-  return matrix[b.length][a.length];
-};
+// ✅ Import scoring service
+import { calculateScore } from "../services/scoring";
 
-// Calculate score fallback
-const calculateScore = (spoken: string, target: string) => {
-  const dist = levenshtein(spoken.toLowerCase().trim(), target.toLowerCase().trim());
-  const maxLen = Math.max(spoken.length, target.length);
-  const similarity = 1 - dist / maxLen;
-  return similarity < 0.5 ? 0 : Math.round(similarity * 100);
-};
+const STARTER_WORDS = ["cat", "sun", "determination"];
 
 export default function Read({ route }: any) {
   const { roomData } = route.params;
 
-  const [words, setWords] = useState<string[]>(roomData.words || [roomData.word]);
+  const [words, setWords] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [recognizedText, setRecognizedText] = useState("");
@@ -38,123 +40,215 @@ export default function Read({ route }: any) {
   const [completed, setCompleted] = useState(false);
   const [playerName, setPlayerName] = useState("Anonymous");
   const [userId, setUserId] = useState<string | null>(null);
-  const [scoresArray, setScoresArray] = useState<number[]>([]); // store each word's score
+  const [scoresArray, setScoresArray] = useState<number[]>([]);
+  const [usingStarter, setUsingStarter] = useState(true);
+  const [difficulty, setDifficulty] = useState<
+    "easy" | "medium" | "hard"
+  >("easy");
+  const [streakCount, setStreakCount] = useState(0);
 
-  const currentWord = words[currentIndex];
+  const currentWord: string = words[currentIndex] ?? ""; // ✅ always defined
+  const recordingRef = useRef<Audio.Recording | null>(null);
 
-  // Fetch player name and UID
+  // 🔹 Auth listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setUserId(user.uid);
         try {
           const snap = await getDoc(doc(db, "Playername", user.uid));
-          setPlayerName(snap.exists() ? snap.data().playerName || "Anonymous" : "Anonymous");
-        } catch (err) {
-          console.error(err);
+          setPlayerName(
+            snap.exists() ? snap.data().playerName || "Anonymous" : "Anonymous"
+          );
+        } catch {
           setPlayerName("Anonymous");
         }
-      } else setPlayerName("Anonymous");
+      } else {
+        setPlayerName("Anonymous");
+      }
     });
     return () => unsubscribe();
   }, []);
 
-  // Real-time words listener
+  // 🔹 Restore last session or start fresh
   useEffect(() => {
-    const q = query(collection(db, "PronunciationRoom"), where("roomCode", "==", roomData.roomCode));
+    const fetchProgress = async () => {
+      const user = auth.currentUser;
+      if (!user) {
+        setWords(STARTER_WORDS);
+        return;
+      }
+      const docId = `${user.uid}_${roomData.roomCode}`;
+      try {
+        const snap = await getDoc(doc(db, "StudentProgress", docId));
+        if (snap.exists()) {
+          const data = snap.data();
+          setUsingStarter(false);
+          setWords(roomData.words || [roomData.word]);
+          if (data.currentWordIndex !== undefined)
+            setCurrentIndex(data.currentWordIndex);
+          if (Array.isArray(data.scores)) setScoresArray(data.scores);
+        } else {
+          setUsingStarter(true);
+          setWords(STARTER_WORDS);
+        }
+      } catch {
+        setUsingStarter(true);
+        setWords(STARTER_WORDS);
+      }
+    };
+    fetchProgress();
+  }, [roomData.roomCode]);
+
+  // 🔹 Live room word updates (after starter)
+  useEffect(() => {
+    if (usingStarter) return;
+    const q = query(
+      collection(db, "PronunciationRoom"),
+      where("roomCode", "==", roomData.roomCode)
+    );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const newWords: string[] = [];
-      snapshot.forEach(doc => {
+      snapshot.forEach((doc) => {
         const data = doc.data();
-        if (data.words && Array.isArray(data.words)) newWords.push(...data.words);
+        if (Array.isArray(data.words)) newWords.push(...data.words);
         else if (data.word) newWords.push(data.word);
       });
       if (newWords.length > 0) {
         setWords(newWords);
-        if (currentIndex >= newWords.length) setCurrentIndex(newWords.length - 1);
+        if (currentIndex >= newWords.length)
+          setCurrentIndex(newWords.length - 1);
       }
     });
     return () => unsubscribe();
-  }, [roomData.roomCode, currentIndex]);
+  }, [roomData.roomCode, currentIndex, usingStarter]);
 
-  // Start recognition
-  const startRecognition = async () => {
-    if (!userId) {
-      Alert.alert("Error", "Only the logged-in user can record.");
-      return;
-    }
-    setIsRecording(true);
-    if (Platform.OS === "web" || !OPENAI_API_KEY) {
-      simulateRecognition();
-    }
-  };
+  // 🔹 Auto-save on word change
+  useEffect(() => {
+    if (currentWord) saveProgress();
+  }, [currentWord]);
 
-  const stopRecognition = async () => {
-    if (!userId) {
-      Alert.alert("Error", "Only the logged-in user can stop recording.");
-      return;
-    }
-    setIsRecording(false);
-    simulateRecognition();
-  };
-
-  const simulateRecognition = async () => {
-    const fakeTranscription = currentWord
-      .split("")
-      .map(c => (Math.random() > 0.1 ? c : ""))
-      .join("");
-
-    setRecognizedText(fakeTranscription);
-
-    let finalScore = calculateScore(fakeTranscription, currentWord);
-
-    if (OPENAI_API_KEY) {
-      try {
-        const response = await fetch("https://api.openai.com/v1/completions", {
+  // 🔹 Whisper transcription
+  const transcribeWithWhisper = async (uri: string) => {
+    try {
+      const formData = new FormData();
+      formData.append("file", {
+        uri,
+        type: "audio/mp4",
+        name: "speech.mp4",
+      } as any);
+      formData.append("model", "whisper-1");
+      const response = await fetch(
+        "https://api.openai.com/v1/audio/transcriptions",
+        {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "text-davinci-003",
-            prompt: `Rate the similarity (0-100) between the spoken word "${fakeTranscription}" and the target word "${currentWord}". Only return the number.`,
-            max_tokens: 5,
-          }),
-        });
-        const data = await response.json();
-        const openAIScore = parseInt(data.choices?.[0]?.text || "", 10);
-        if (!isNaN(openAIScore)) finalScore = openAIScore;
-      } catch (err) {
-        console.error("OpenAI scoring failed:", err);
-      }
+          headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+          body: formData,
+        }
+      );
+      const data = await response.json();
+      return data.text?.trim() || "";
+    } catch (err) {
+      console.error("Whisper error:", err);
+      return "";
     }
-
-    setScore(finalScore);
-    setCompleted(true);
-    setScoresArray(prev => [...prev, finalScore]);
-    saveResult(fakeTranscription, finalScore);
   };
 
-  const saveResult = async (spoken: string, percent: number) => {
+  // 🔹 Start recording
+  const startRecognition = async () => {
+    if (!userId) return Alert.alert("Error", "Login required to record.");
+    try {
+      if (recordingRef.current) {
+        await recordingRef.current.stopAndUnloadAsync();
+        recordingRef.current = null;
+      }
+      await Audio.requestPermissionsAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      recordingRef.current = recording;
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Recording error", err);
+    }
+  };
+
+  // 🔹 Stop recording & score
+  const stopRecognition = async () => {
+    if (!userId) return Alert.alert("Error", "Login required to stop recording.");
+    setIsRecording(false);
+    try {
+      if (!recordingRef.current) return;
+      await recordingRef.current.stopAndUnloadAsync();
+      const uri = recordingRef.current.getURI();
+      recordingRef.current = null;
+      if (uri) {
+        const transcript = await transcribeWithWhisper(uri);
+        setRecognizedText(transcript);
+        const finalScore = calculateScore(transcript, currentWord);
+        setScore(finalScore);
+        setCompleted(true);
+        setScoresArray((prev) => [...prev, finalScore]);
+        adjustDifficulty(finalScore);
+        saveProgress();
+      }
+    } catch (err) {
+      console.error("Stop recording error", err);
+    }
+  };
+
+  // 🔹 Adjust difficulty dynamically
+  const adjustDifficulty = (newScore: number) => {
+    if (newScore >= 80) {
+      setStreakCount((prev) => {
+        const next = prev + 1;
+        if (next >= 3) {
+          setDifficulty("hard");
+          return 0;
+        }
+        return next;
+      });
+    } else if (newScore < 50) {
+      setDifficulty("easy");
+      setStreakCount(0);
+    } else {
+      setDifficulty("medium");
+    }
+  };
+
+  // 🔹 Save StudentProgress
+  const saveProgress = async () => {
     try {
       const user = auth.currentUser;
       if (!user) return;
-      const docId = `${user.uid}_${currentWord}_${roomData.roomCode}`;
-      await setDoc(doc(db, "StudentResultJoin", docId), {
-        uid: user.uid,
-        email: user.email,
-        name: playerName,
-        spokenWord: spoken,
-        targetWord: currentWord,
-        score: percent,
-        roomCode: roomData.roomCode,
-        difficulty: roomData.difficulty,
-        createdAt: new Date().toISOString(),
-      });
-    } catch (err) { console.error(err); }
+      const docId = `${user.uid}_${roomData.roomCode}`;
+      await setDoc(
+        doc(db, "StudentProgress", docId),
+        {
+          playerName,
+          name: playerName,
+          email: user.email || "",
+          roomCode: roomData.roomCode,
+          roomName: roomData.roomName || "Unknown",
+          currentWordIndex: currentIndex,
+          totalWords: words.length,
+          scores: scoresArray,
+          lastWord: currentWord || "", // ✅ never undefined
+          completed: currentIndex >= words.length - 1,
+          updatedAt: Timestamp.now(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.error("Save progress error:", err);
+    }
   };
 
+  // 🔹 Proceed to next word
   const handleProceed = () => {
     if (currentIndex < words.length - 1) {
       setCurrentIndex(currentIndex + 1);
@@ -162,32 +256,47 @@ export default function Read({ route }: any) {
       setScore(null);
       setCompleted(false);
     } else {
-      const totalScore = scoresArray.reduce((a, b) => a + b, 0);
-      const avgScore = Math.round(totalScore / scoresArray.length);
-      Alert.alert("Session Completed", `Total Score: ${totalScore}\nAverage Score: ${avgScore}`);
+      if (usingStarter) {
+        setUsingStarter(false);
+        setWords(roomData.words || [roomData.word]);
+        setCurrentIndex(0);
+      } else {
+        const total = scoresArray.reduce((a, b) => a + b, 0);
+        const avg = Math.round(total / scoresArray.length);
+        Alert.alert("Session Completed", `Total: ${total}\nAverage: ${avg}`);
+      }
+      saveProgress();
     }
   };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Determination</Text>
+      <Text style={styles.title}>
+        {usingStarter ? "Starter Practice" : "Pronunciation Room"}
+      </Text>
       <View style={styles.wordBox}>
         <Text style={styles.word}>{currentWord}</Text>
       </View>
-
       {!completed ? (
         <TouchableOpacity
           style={[styles.micButton, isRecording && { backgroundColor: "red" }]}
           onPress={isRecording ? stopRecognition : startRecognition}
         >
           <Ionicons name="mic" size={36} color="#fff" />
-          <Text style={styles.micText}>{isRecording ? "Recording..." : "Start Speaking"}</Text>
+          <Text style={styles.micText}>
+            {isRecording ? "Recording..." : "Start Speaking"}
+          </Text>
         </TouchableOpacity>
       ) : (
         <View style={styles.resultContainer}>
           <Text style={styles.result}>You said: {recognizedText}</Text>
           <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: score != null ? `${score}%` : 0 }]} />
+            <View
+              style={[
+                styles.progressFill,
+                { width: score != null ? `${score}%` : 0 },
+              ]}
+            />
           </View>
           <Text style={styles.scoreText}>Score: {score}%</Text>
           <TouchableOpacity style={styles.proceedButton} onPress={handleProceed}>
@@ -201,31 +310,30 @@ export default function Read({ route }: any) {
 
 const styles = StyleSheet.create({
   container: {
-    flexGrow: 1,
+    flex: 1,
     backgroundColor: "#1E1E2E",
-    alignItems: "stretch",
-    padding: 20,
+    alignItems: "center",
+    justifyContent: "flex-start",
+    paddingVertical: 30,
+    paddingHorizontal: 20,
   },
   title: {
     fontSize: 28,
     fontWeight: "800",
     color: "#fff",
-    marginVertical: 20,
+    marginBottom: 30,
     textAlign: "center",
   },
   wordBox: {
     backgroundColor: "#2A2A3C",
-    paddingVertical: 40,
-    paddingHorizontal: 20,
+    paddingVertical: 50,
+    paddingHorizontal: 25,
     borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 30,
+    marginBottom: 40,
     width: "100%",
-    height: "40%",
+    alignItems: "center",
     borderWidth: 2,
     borderColor: "#fff",
-    shadowColor:  "#ada8a8ff",
   },
   word: {
     fontSize: 36,
@@ -236,18 +344,18 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    alignSelf: "center",
     backgroundColor: "#007AFF",
     paddingVertical: 20,
     borderRadius: 20,
-    marginBottom: 30,
-    width: "50%", // full width
+    marginBottom: 40,
+    width: "70%",
   },
   micText: {
     color: "#fff",
     fontSize: 18,
     fontWeight: "600",
     marginTop: 10,
+    textAlign: "center",
   },
   resultContainer: {
     width: "100%",
@@ -256,11 +364,10 @@ const styles = StyleSheet.create({
   },
   progressBar: {
     height: 20,
-    width: "100%",
+    width: "90%",
     backgroundColor: "#2A2A3C",
     borderRadius: 12,
-    marginBottom: 10,
-    overflow: "hidden",
+    marginBottom: 15,
   },
   progressFill: {
     height: "100%",
@@ -282,13 +389,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#007AFF",
     paddingVertical: 16,
     borderRadius: 20,
-    width: "50%", // full width button
+    width: "70%",
     alignItems: "center",
+    justifyContent: "center",
+    marginTop: 20,
   },
   proceedText: {
     color: "#fff",
     fontSize: 18,
     fontWeight: "600",
+    textAlign: "center",
   },
 });
-

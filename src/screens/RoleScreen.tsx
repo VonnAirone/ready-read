@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, Button, StyleSheet, TouchableOpacity, Alert } from "react-native";
-import { auth, db } from "../../firebase";
+import { auth, db } from "./services/firebase";
 import { doc, getDoc } from "firebase/firestore";
 
 export default function RoleScreen({ navigation }: any) {

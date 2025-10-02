@@ -1,135 +1,183 @@
-// src/Join.tsx
 import React, { useState } from "react";
 import {
   View,
   Text,
   TextInput,
-  Modal,
   TouchableOpacity,
   StyleSheet,
-  ImageBackground,
   Alert,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
-import { db } from "../../../firebase"; // ✅ your firebase config
+import { db } from "../services/firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
+import ModalRoom from "../services/modalroom";
+import { Ionicons } from "@expo/vector-icons";
+import { ActivityIndicator } from "react-native";
 
 export default function Join() {
   const navigation = useNavigation<any>();
-  const [modalVisible, setModalVisible] = useState(true);
+  const [roomsVisible, setRoomsVisible] = useState(false);
   const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleEnter = async () => {
-  const trimmedCode = code.trim();
-  if (!trimmedCode) return;
+    const trimmedCode = code.trim();
+    if (!trimmedCode) return;
 
-  try {
-    const q = query(
-      collection(db, "PronunciationRoom"),
-      where("roomCode", "==", trimmedCode)
-    );
-    const querySnap = await getDocs(q);
+    try {
+      setLoading(true); // ⏳ start spinner
 
-    if (querySnap.empty) {
-      Alert.alert("Error", "Room code not found.");
-      return;
+      // 1️⃣ Check if room exists in GenerateRoom
+      const genQuery = query(
+        collection(db, "GenerateRoom"),
+        where("roomCode", "==", trimmedCode)
+      );
+      const genSnap = await getDocs(genQuery);
+
+      if (genSnap.empty) {
+        Alert.alert("Aray ko", "Room code not found.");
+        return;
+      }
+
+      // 2️⃣ Check if room has data in PronunciationRoom
+      const dataQuery = query(
+        collection(db, "PronunciationRoom"),
+        where("roomCode", "==", trimmedCode)
+      );
+      const dataSnap = await getDocs(dataQuery);
+
+      if (dataSnap.empty) {
+        Alert.alert("Info", "Room has no Data.");
+        return;
+      }
+
+      // ✅ Room exists and has data
+      const roomDoc = dataSnap.docs[0];
+      const roomData = roomDoc.data();
+
+      navigation.replace("Confirm", {
+        roomcode: roomData.roomCode,
+        roomID: roomDoc.id,
+        roomname: roomData.roomName || "No Name",
+        name: roomData.name || "",
+        playername: roomData.playername || "",
+        email: roomData.email || "",
+      });
+    } catch (err) {
+      console.error("Error entering room:", err);
+      Alert.alert("Error", "Something went wrong. Try again.");
+    } finally {
+      setLoading(false); // ✅ stop spinner
     }
-
-    const roomDoc = querySnap.docs[0];
-    const roomData = roomDoc.data();
-    console.log("📌 Room Data:", roomData);
-
-    setModalVisible(false);
-
-    // ✅ Pass full room data instead of quizId
-    navigation.replace("Read", {
-      roomId: roomDoc.id,
-      roomCode: trimmedCode,
-      roomData,
-    });
-  } catch (err) {
-    console.error("Error entering room:", err);
-    Alert.alert("Error", "Something went wrong. Try again.");
-  }
-};
+  };
 
 
   return (
-    <ImageBackground
-      source={require("../../../assets/icon.png")}
-      style={styles.container}
-    >
-      <Modal
-        visible={modalVisible}
-        animationType="fade"
-        transparent
-        onRequestClose={() => {
-          setModalVisible(false);
-          navigation.goBack();
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>🔑 Enter Room Code</Text>
+    <LinearGradient colors={["#1E1E2E", "#121212"]} style={styles.container}>
+      {/* ✅ Top-right Rooms Button */}
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          style={styles.roomsButton}
+          onPress={() => setRoomsVisible(true)}
+        >
+          <Ionicons name="list-circle-outline" size={22} color="#fff" />
+          <Text style={styles.roomsButtonText}>Rooms</Text>
+        </TouchableOpacity>
+      </View>
 
-            <TextInput
-              style={styles.input}
-              placeholder="Enter Code"
-              placeholderTextColor="#aaa"
-              value={code}
-              onChangeText={setCode}
-            />
+      {/* 🔑 Join Room Card */}
+      <View style={styles.formContainer}>
+        <Text style={styles.title}>🔑 Join a Room</Text>
+        <Text style={styles.subtitle}>
+          Enter the room code provided by your teacher
+        </Text>
 
-            <TouchableOpacity style={styles.enterButton} onPress={handleEnter}>
-              <Text style={styles.enterButtonText}>✔ ENTER</Text>
-            </TouchableOpacity>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter Code"
+          placeholderTextColor="#888"
+          value={code}
+          onChangeText={setCode}
+        />
 
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => {
-                setModalVisible(false);
-                navigation.goBack();
-              }}
-            >
-              <Text style={styles.cancelButtonText}>✖ CANCEL</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </ImageBackground>
+        <TouchableOpacity
+          style={styles.enterButton}
+          onPress={handleEnter}
+          disabled={loading} // prevent double click
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.enterButtonText}>✔ ENTER</Text>
+          )}
+        </TouchableOpacity>
+
+      </View>
+
+      {/* 📋 Room List Modal */}
+      <ModalRoom visible={roomsVisible} onClose={() => setRoomsVisible(false)} />
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  modalOverlay: {
+  container: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    padding: 20,
+    justifyContent: "center", // centers vertically
+    alignItems: "center", // centers horizontally
   },
-  modalContent: {
-    backgroundColor: "#1E1E2E",
-    padding: 25,
+  topBar: {
+    position: "absolute",
+    top: 50,
+    right: 20,
+    zIndex: 20,
+  },
+  roomsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#5AC8FA",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 20,
-    width: "90%",
-    alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 10,
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: "800",
+  roomsButtonText: {
     color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    marginLeft: 6,
+  },
+  formContainer: {
+    backgroundColor: "#2A2A3C",
+    borderRadius: 20,
+    padding: 25,
+    width: "85%", // makes card more balanced
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#FFD60A",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  subtitle: {
+    fontSize: 14,
+    color: "#bbb",
     marginBottom: 20,
-    letterSpacing: 1,
+    textAlign: "center",
   },
   input: {
-    backgroundColor: "#2A2A3C",
+    backgroundColor: "#1E1E2E",
     borderRadius: 12,
     padding: 15,
     width: "100%",
@@ -137,32 +185,25 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: "#fff",
     textAlign: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
   },
   enterButton: {
-    backgroundColor: "#007AFF",
+    backgroundColor: "#34C759",
     paddingVertical: 15,
-    borderRadius: 50,
+    borderRadius: 12,
     width: "100%",
     alignItems: "center",
-    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 6,
   },
   enterButtonText: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "700",
-    letterSpacing: 1,
-  },
-  cancelButton: {
-    backgroundColor: "#FF3B30",
-    paddingVertical: 15,
-    borderRadius: 50,
-    width: "100%",
-    alignItems: "center",
-  },
-  cancelButtonText: {
     color: "#fff",
     fontSize: 18,
     fontWeight: "700",
     letterSpacing: 1,
   },
 });
+

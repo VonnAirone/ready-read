@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "../firebase";
+import { auth, db } from "../src/screens/services/firebase";
 import { doc, getDoc } from "firebase/firestore";
 
 export default function LoginScreen({ navigation }: any) {
