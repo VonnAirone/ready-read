@@ -9,9 +9,9 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
-import { db } from "../services/firebase";
+import { db } from "../../services/firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
-import ModalRoom from "../services/modalroom";
+import ModalRoom from "../../components/ModalRoom";
 import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator } from "react-native";
 

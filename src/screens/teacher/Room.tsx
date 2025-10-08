@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   Alert,
 } from "react-native";
-import { auth, db } from "../screens/services/firebase";
+import { auth, db } from "../../services/firebase";
 import {
   collection,
   query,

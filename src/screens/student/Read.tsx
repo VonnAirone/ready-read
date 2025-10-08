@@ -9,7 +9,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { auth, db } from "../services/firebase";
+import { auth, db } from "../../services/firebase";
 import {
   doc,
   setDoc,
@@ -25,7 +25,7 @@ import { OPENAI_API_KEY } from "@env";
 import { Audio } from "expo-av";
 
 // ✅ Import scoring service
-import { calculateScore } from "../services/scoring";
+import { calculateScore } from "../../services/scoring";
 
 const STARTER_WORDS = ["cat", "sun", "determination"];
 

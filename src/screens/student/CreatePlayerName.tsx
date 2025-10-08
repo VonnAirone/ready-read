@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth, db } from "../services/firebase";
+import { auth, db } from "../../services/firebase";
 import { MaterialIcons } from "@expo/vector-icons"; // ✅ for edit icon
 
 export default function CreatePlayername({ navigation }: any) {

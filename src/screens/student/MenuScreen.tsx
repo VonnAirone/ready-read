@@ -9,7 +9,7 @@ import {
   ImageBackground,
 } from "react-native";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth, db } from "../services/firebase";
+import { auth, db } from "../../services/firebase";
 import { doc, getDoc } from "firebase/firestore";
 
 export default function GameMenuScreen({ navigation }: any) {

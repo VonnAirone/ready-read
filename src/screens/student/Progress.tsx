@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { db } from "../services/firebase";
+import { db } from "../../services/firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { onAuthStateChanged, getAuth } from "firebase/auth";
 

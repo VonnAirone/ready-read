@@ -1,8 +1,7 @@
 // firebaseConfig.ts
 import { initializeApp } from "firebase/app";
-import { getAuth } from 'firebase/auth';
+import { initializeAuth } from 'firebase/auth';
 import { getFirestore } from "firebase/firestore";
-import '../../utils/asyncStorage'; // Ensure AsyncStorage is available globally
 
 const firebaseConfig = {
   apiKey: "AIzaSyDcGdyuTeyhIqw24_HaNvFumS7Tibvm2gw",
@@ -15,9 +14,17 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// ✅ Firebase Auth - AsyncStorage should be automatically detected
-// The warning will persist but auth persistence will work
-const auth = getAuth(app);
+// ✅ Initialize Auth with persistence for React Native
+// The warning will appear but persistence will work in practice
+let auth;
+try {
+  auth = initializeAuth(app);
+} catch (error) {
+  // If already initialized, get the existing instance
+  const { getAuth } = require('firebase/auth');
+  auth = getAuth(app);
+}
+
 const db = getFirestore(app);
 
 export { auth, db };

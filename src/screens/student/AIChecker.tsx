@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Audio } from "expo-av";
-import { auth, db } from "../services/firebase";
+import { auth, db } from "../../services/firebase";
 import { doc, setDoc } from "firebase/firestore";
 
 export default function AIchecker({ route }) {

@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { Ionicons } from "@expo/vector-icons";
-import { auth, db } from "../screens/services/firebase";
+import { auth, db } from "../../services/firebase";
 import { collection, serverTimestamp, query, where, getDocs, doc, setDoc } from "firebase/firestore";
 
 export default function AddPronunciation({ route, navigation }: any) {

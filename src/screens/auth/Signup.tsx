@@ -13,7 +13,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from "../src/screens/services/firebase";
+import { auth, db } from "../../services/firebase";
 
 export default function Signup({ navigation }: any) {
   const [email, setEmail] = useState("");

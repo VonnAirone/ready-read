@@ -11,8 +11,9 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "../src/screens/services/firebase";
+import { auth, db } from "../../services/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import { getFontFamily } from "../../../styles/fonts";
 
 export default function LoginScreen({ navigation }: any) {
   const [email, setEmail] = useState("");
@@ -92,7 +93,7 @@ const handleLogin = async () => {
           </Text>
         </TouchableOpacity>
       </View>
-  </LinearGradient>
+    </LinearGradient>
   );
 }
 
@@ -122,7 +123,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 26,
-    fontWeight: "bold",
+    fontFamily: getFontFamily('bold'),
     marginBottom: 25,
     textAlign: "center",
     color: "#333",
@@ -134,6 +135,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 15,
     backgroundColor: "#fafafa",
+    fontFamily: getFontFamily('regular'),
   },
   loginBtn: {
     backgroundColor: "#007AFF",
@@ -148,7 +150,7 @@ const styles = StyleSheet.create({
   },
   btnText: {
     color: "#fff",
-    fontWeight: "600",
+    fontFamily: getFontFamily('semibold'),
     fontSize: 16,
   },
   signupBtn: {
@@ -158,9 +160,10 @@ const styles = StyleSheet.create({
   signupText: {
     fontSize: 14,
     color: "#555",
+    fontFamily: getFontFamily('regular'),
   },
   signupHighlight: {
     color: "#007AFF",
-    fontWeight: "600",
+    fontFamily: getFontFamily('semibold'),
   },
 });

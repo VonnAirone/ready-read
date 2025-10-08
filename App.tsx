@@ -2,17 +2,19 @@ import React, { useEffect, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { auth, db } from "./src/screens/services/firebase";
+import { auth, db } from "./src/services/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import * as SplashScreen from 'expo-splash-screen';
+import useCustomFonts from './hooks/useFonts';
 
-import LoginScreen from "./Auth/Login";
-import SignupScreen from "./Auth/Signup";
-import TeacherSignup from "./src/teacher/TeacherSignup";
+import LoginScreen from "./src/screens/auth/Login";
+import SignupScreen from "./src/screens/auth/Signup";
+import TeacherSignup from "./src/screens/teacher/TeacherSignup";
 
-import RoomGenerator from "./src/teacher/RoomGenerator";
-import Room from "./src/teacher/Room";
-import AddPronunciation from "./src/teacher/AddPronounciation";
-import ModifyPronunciation from "./src/teacher/Pronounciation";
+import RoomGenerator from "./src/screens/teacher/RoomGenerator";
+import Room from "./src/screens/teacher/Room";
+import AddPronunciation from "./src/screens/teacher/AddPronounciation";
+import ModifyPronunciation from "./src/screens/teacher/Pronounciation";
 
 import GameMenuScreen from "./src/screens/student/MenuScreen";
 import CreatePlayername from "./src/screens/student/CreatePlayerName";
@@ -28,6 +30,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
+  const fontsLoaded = useCustomFonts();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -55,7 +58,18 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  if (loading) return null; // ⏳ show splash/loading screen if needed
+  useEffect(() => {
+    async function prepare() {
+      await SplashScreen.preventAutoHideAsync();
+    }
+    prepare();
+  }, []);
+
+  if (!fontsLoaded || loading) {
+    return null; // Keep splash screen visible while loading
+  }
+
+  SplashScreen.hideAsync(); // Hide splash screen when ready
 
   return (
     <NavigationContainer>
