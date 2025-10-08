@@ -1,8 +1,8 @@
 // App-wide constants
 export const COLORS = {
-  primary: '#007AFF',
-  secondary: '#8C52FF',
-  tertiary: '#543199',
+  primary: '#8C52FF',
+  secondary: '#543199',
+  tertiary: '#007AFF',
   white: '#FFFFFF',
   black: '#000000',
   gray: {
@@ -22,6 +22,7 @@ export const COLORS = {
 export const GRADIENTS = {
   primary: ['#8C52FF', '#543199'],
   secondary: ['#007AFF', '#0051D5'],
+  accent: ['#8C52FF', '#B084FF'],
 };
 
 export const FONT_SIZES = {

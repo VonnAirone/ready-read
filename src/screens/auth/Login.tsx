@@ -14,6 +14,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "../../services/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { getFontFamily } from "../../../styles/fonts";
+import { COLORS, GRADIENTS } from "../../constants/theme";
 
 export default function LoginScreen({ navigation }: any) {
   const [email, setEmail] = useState("");
@@ -46,7 +47,7 @@ const handleLogin = async () => {
 
   return (
     <LinearGradient
-      colors={["#8C52FF", "#543199"]}
+      colors={GRADIENTS.primary}
       style={styles.container}
     >
       <View style={styles.box}>
@@ -102,19 +103,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    // backgroundColor: "#007AFF", // replaced by LinearGradient
     padding: 20,
   },
   box: {
-    width: "100%",
-    backgroundColor: "#fff",
-    padding: 25,
-    borderRadius: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    width: '90%',
   },
   logo: {
     fontSize: 48,
@@ -123,26 +115,29 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 26,
-    fontFamily: getFontFamily('bold'),
+    fontFamily: getFontFamily('medium'),
     marginBottom: 25,
-    textAlign: "center",
-    color: "#333",
+    textAlign: "left",
+    color: COLORS.white,
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    padding: 14,
+    fontSize: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     borderRadius: 10,
     marginBottom: 15,
     backgroundColor: "#fafafa",
     fontFamily: getFontFamily('regular'),
+    minHeight: 48, // Ensure consistent height
   },
   loginBtn: {
-    backgroundColor: "#007AFF",
-    paddingVertical: 15,
-    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: 10,
     alignItems: "center",
+    justifyContent: "center",
     marginTop: 5,
+    minHeight: 48, // Match input height
     shadowColor: "#000",
     shadowOpacity: 0.2,
     shadowRadius: 6,
@@ -158,12 +153,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   signupText: {
-    fontSize: 14,
-    color: "#555",
+    fontSize: 16,
+    color: COLORS.white,
     fontFamily: getFontFamily('regular'),
   },
   signupHighlight: {
-    color: "#007AFF",
+    color: COLORS.white,
     fontFamily: getFontFamily('semibold'),
   },
 });

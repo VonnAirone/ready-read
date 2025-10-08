@@ -73,7 +73,7 @@ export default function ModalRoom({ visible, onClose }: ModalRoomProps) {
           </Text>
         )}
       </View>
-      <Ionicons name="chevron-forward" size={24} color="#007AFF" />
+      <Ionicons name="chevron-forward" size={24} color="#8C52FF" />
     </TouchableOpacity>
   );
 
@@ -97,7 +97,7 @@ export default function ModalRoom({ visible, onClose }: ModalRoomProps) {
         <View style={styles.content}>
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#007AFF" />
+              <ActivityIndicator size="large" color="#8C52FF" />
               <Text style={styles.loadingText}>Loading rooms...</Text>
             </View>
           ) : rooms.length === 0 ? (
@@ -205,7 +205,7 @@ const styles = StyleSheet.create({
   },
   roomCode: {
     fontSize: 14,
-    color: "#007AFF",
+    color: "#8C52FF",
     fontWeight: "500",
   },
   wordCount: {
