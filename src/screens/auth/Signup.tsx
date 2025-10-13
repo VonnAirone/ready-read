@@ -14,6 +14,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../../services/firebase";
+import { getFontFamily } from "../../../styles/fonts";
+import { COLORS } from "../../constants/theme";
 
 export default function Signup({ navigation }: any) {
   const [email, setEmail] = useState("");
@@ -78,77 +80,91 @@ const handleSignup = async () => {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <TextInput
-        placeholder="Full Name"
-        value={name}
-        onChangeText={setName}
-        style={styles.input}
-      />
-      <TextInput
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
-        style={styles.input}
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
+      <View style={styles.box}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Create an Account</Text>
+          <Text style={styles.description}>Sign in to get started</Text>
+        </View>
 
-      {/* Password with eye toggle */}
-      <View style={styles.passwordContainer}>
+        <Text style={styles.label}>Full name</Text>
         <TextInput
-          placeholder="Password"
-          secureTextEntry={!showPassword}
-          value={password}
-          onChangeText={setPassword}
-          style={styles.passwordInput}
+          placeholder="Enter your full name"
+          value={name}
+          onChangeText={setName}
+          style={styles.input}
         />
-        <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-          <Ionicons
-            name={showPassword ? "eye" : "eye-off"}
-            size={22}
-            color="#555"
+
+        <Text style={styles.label}>Email</Text>
+        <TextInput
+          placeholder="Enter a valid email address"
+          value={email}
+          onChangeText={setEmail}
+          style={styles.input}
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
+
+        <Text style={styles.label}>Password</Text>
+        <View style={styles.passwordContainer}>
+          <TextInput
+            placeholder="Enter a strong password"
+            secureTextEntry={!showPassword}
+            value={password}
+            onChangeText={setPassword}
+            style={styles.passwordInput}
           />
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+            <Ionicons
+              name={showPassword ? "eye" : "eye-off"}
+              size={22}
+              color="#555"
+            />
+          </TouchableOpacity>
+        </View>
 
-      {/* Confirm Password with eye toggle */}
-      <View style={styles.passwordContainer}>
-        <TextInput
-          placeholder="Confirm Password"
-          secureTextEntry={!showConfirmPassword}
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          style={styles.passwordInput}
-        />
+        <Text style={styles.label}>Confirm Password</Text>
+        <View style={styles.passwordContainer}>
+          <TextInput
+            placeholder="Confirm Password"
+            secureTextEntry={!showConfirmPassword}
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            style={styles.passwordInput}
+          />
+          <TouchableOpacity
+            onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+          >
+            <Ionicons
+              name={showConfirmPassword ? "eye" : "eye-off"}
+              size={22}
+              color="#555"
+            />
+          </TouchableOpacity>
+        </View>
+
+        {/* ✅ Signup button with spinner */}
         <TouchableOpacity
-          onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+          style={[styles.signupButton, loading && { opacity: 0.7 }]}
+          onPress={handleSignup}
+          disabled={loading}
         >
-          <Ionicons
-            name={showConfirmPassword ? "eye" : "eye-off"}
-            size={22}
-            color="#555"
-          />
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.btnText}>Sign Up</Text>
+          )}
         </TouchableOpacity>
-      </View>
 
-      {/* ✅ Signup button with spinner */}
-      <TouchableOpacity
-        style={[styles.signupButton, loading && { opacity: 0.7 }]}
-        onPress={handleSignup}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.signupText}>Sign Up</Text>
-        )}
-      </TouchableOpacity>
-
-      <View style={styles.buttonWrapper}>
-        <Button
-          title="Already have an account? Login"
+        <TouchableOpacity
+          style={styles.signupBtn}
           onPress={() => navigation.navigate("Login")}
-        />
+          disabled={loading}
+        >
+          <Text style={styles.signupText}>
+            Already have an account?{" "}
+            <Text style={styles.signupHighlight}>Login here</Text>
+          </Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -156,24 +172,50 @@ const handleSignup = async () => {
 
 const styles = StyleSheet.create({
   container: {
-    flexGrow: 1,
+    flex: 1,
     justifyContent: "center",
+    alignItems: "center",
     padding: 20,
-    backgroundColor: "#fff",
   },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    marginBottom: 15,
-    padding: 12,
-    borderRadius: 8,
+  box: {
+    width: '90%',
+  },
+  header: {
+    marginBottom: 20,
+    gap: 10
+  },
+  title: {
+    fontSize: 26,
+    fontFamily: getFontFamily('medium'),
+    textAlign: "left",
+    color: COLORS.primary,
+  },
+  description: {
     fontSize: 16,
+    color: COLORS.black,
+    marginBottom: 20,
+    fontFamily: getFontFamily('regular'),
+  },
+  label: {
+    fontSize: 16,
+    color: COLORS.black,
+    fontFamily: getFontFamily('regular'),
+    marginBottom: 10,
+  }, 
+  input: {
+    fontSize: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    marginBottom: 15,
+    backgroundColor: "#fafafa",
+    fontFamily: getFontFamily('regular'),
+    minHeight: 48, // Ensure consistent height
   },
   passwordContainer: {
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#ccc",
+    backgroundColor: "#fafafa",
     marginBottom: 15,
     borderRadius: 8,
     paddingHorizontal: 10,
@@ -182,20 +224,37 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 12,
     fontSize: 16,
+    fontFamily: getFontFamily('regular'),
   },
   signupButton: {
-    backgroundColor: "#007BFF",
-    padding: 15,
-    borderRadius: 8,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: 10,
     alignItems: "center",
-    marginVertical: 10,
+    justifyContent: "center",
+    marginTop: 5,
+    minHeight: 48, // Match input height
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  btnText: {
+    color: "#fff",
+    fontFamily: getFontFamily('semibold'),
+    fontSize: 16,
+  },
+    signupBtn: {
+    marginTop: 20,
+    alignItems: "center",
   },
   signupText: {
-    color: "#fff",
     fontSize: 16,
-    fontWeight: "600",
+    color: COLORS.black,
+    fontFamily: getFontFamily('regular'),
   },
-  buttonWrapper: {
-    marginVertical: 8,
+  signupHighlight: {
+    color: COLORS.primary,
+    fontFamily: getFontFamily('semibold'),
   },
 });

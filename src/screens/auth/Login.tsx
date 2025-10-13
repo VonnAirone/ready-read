@@ -46,30 +46,37 @@ const handleLogin = async () => {
 
 
   return (
-    <LinearGradient
-      colors={GRADIENTS.primary}
-      style={styles.container}
-    >
+    <View style={styles.container}>
+
       <View style={styles.box}>
-        <Text style={styles.logo}>🎮</Text>
-        <Text style={styles.title}>Login</Text>
+        <View style={styles.header}>
+          <Text style={styles.title}>Login</Text>
+          <Text style={styles.description}>Welcome back!</Text>
+        </View>
 
-        <TextInput
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          style={styles.input}
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
 
-        <TextInput
-          placeholder="Password"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-          style={styles.input}
-        />
+        <View>
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            placeholder="Enter your email"
+            value={email}
+            onChangeText={setEmail}
+            style={styles.input}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+        </View>
+
+        <View>
+          <Text style={styles.label}>Password</Text>
+          <TextInput
+            placeholder="Enter your password"
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+            style={styles.input}
+          />
+        </View>
 
         <TouchableOpacity
           style={[styles.loginBtn, loading && { opacity: 0.7 }]}
@@ -94,7 +101,7 @@ const handleLogin = async () => {
           </Text>
         </TouchableOpacity>
       </View>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -113,13 +120,28 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 10,
   },
+  header: {
+    marginBottom: 20,
+    gap: 10
+  },
   title: {
     fontSize: 26,
     fontFamily: getFontFamily('medium'),
-    marginBottom: 25,
     textAlign: "left",
-    color: COLORS.white,
+    color: COLORS.primary,
   },
+  description: {
+    fontSize: 16,
+    color: COLORS.black,
+    marginBottom: 20,
+    fontFamily: getFontFamily('regular'),
+  },
+  label: {
+    fontSize: 18,
+    color: COLORS.black,
+    fontFamily: getFontFamily('regular'),
+    marginBottom: 10,
+  }, 
   input: {
     fontSize: 16,
     paddingVertical: 14,
@@ -154,11 +176,11 @@ const styles = StyleSheet.create({
   },
   signupText: {
     fontSize: 16,
-    color: COLORS.white,
+    color: COLORS.black,
     fontFamily: getFontFamily('regular'),
   },
   signupHighlight: {
-    color: COLORS.white,
+    color: COLORS.primary,
     fontFamily: getFontFamily('semibold'),
   },
 });
