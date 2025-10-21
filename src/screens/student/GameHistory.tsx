@@ -8,6 +8,8 @@ import {
   FlatList,
   ActivityIndicator,
   Modal,
+  SafeAreaView,
+  StatusBar,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -91,86 +93,106 @@ export default function Progress() {
 
   return (
     <LinearGradient colors={["#1E1E2E", "#121212"]} style={styles.container}>
-      {/* ✅ Top-right Rooms Button */}
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.roomsButton}
-          onPress={() => setRoomsVisible(true)}
-        >
-          <Ionicons name="list-circle-outline" size={22} color="#fff" />
-          <Text style={styles.roomsButtonText}>Rooms</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ✅ Title */}
-      <Text style={styles.title}>📊 My Progress</Text>
-      {selectedRoom ? (
-        <Text style={styles.subtitle}>
-          Showing results for: {selectedRoom}
-        </Text>
-      ) : (
-        <Text style={styles.subtitle}>Select a room to view progress</Text>
-      )}
-
-      {/* ✅ Results List */}
-      {loading ? (
-        <ActivityIndicator size="large" color="#FFD60A" style={{ marginTop: 20 }} />
-      ) : results.length > 0 ? (
-        <FlatList
-          data={results}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <View style={styles.resultCard}>
-              <Text style={styles.resultText}>
-                📝 Word: {item.word} - ✅ Score: {item.score}
-              </Text>
-            </View>
-          )}
-        />
-      ) : (
-        !loading &&
-        selectedRoom && (
-          <Text style={styles.noData}>⚠ No results in this room yet.</Text>
-        )
-      )}
-
-      {/* 📋 Rooms Modal */}
-      <Modal visible={roomsVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Select a Room</Text>
-            {rooms.length > 0 ? (
-              rooms.map((room, idx) => (
-                <TouchableOpacity
-                  key={idx}
-                  style={styles.roomItem}
-                  onPress={() => fetchResults(room.roomCode)}
-                >
-                  <Text style={styles.roomText}>
-                    {room.roomName} ({room.roomCode})
-                  </Text>
-                </TouchableOpacity>
-              ))
-            ) : (
-              <Text style={styles.noData}>No rooms found</Text>
-            )}
-
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => setRoomsVisible(false)}
-            >
-              <Text style={styles.closeText}>✖ Close</Text>
-            </TouchableOpacity>
-          </View>
+      <StatusBar barStyle="light-content" backgroundColor="#1E1E2E" />
+      <SafeAreaView style={styles.safeArea}>
+        {/* ✅ Top-right Rooms Button */}
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            style={styles.roomsButton}
+            onPress={() => setRoomsVisible(true)}
+          >
+            <Ionicons name="list-circle-outline" size={22} color="#fff" />
+            <Text style={styles.roomsButtonText}>Rooms</Text>
+          </TouchableOpacity>
         </View>
-      </Modal>
+
+        <View style={styles.content}>
+          {/* ✅ Title */}
+          <Text style={styles.title}>📊 My Progress</Text>
+          {selectedRoom ? (
+            <Text style={styles.subtitle}>
+              Showing results for: {selectedRoom}
+            </Text>
+          ) : (
+            <Text style={styles.subtitle}>Select a room to view progress</Text>
+          )}
+
+          {/* ✅ Results List */}
+          {loading ? (
+            <ActivityIndicator size="large" color="#FFD60A" style={{ marginTop: 20 }} />
+          ) : results.length > 0 ? (
+            <FlatList
+              data={results}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <View style={styles.resultCard}>
+                  <Text style={styles.resultText}>
+                    📝 Word: {item.word} - ✅ Score: {item.score}
+                  </Text>
+                </View>
+              )}
+            />
+          ) : (
+            !loading &&
+            selectedRoom && (
+              <Text style={styles.noData}>⚠ No results in this room yet.</Text>
+            )
+          )}
+        </View>
+
+        {/* 📋 Rooms Modal */}
+        <Modal visible={roomsVisible} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalBox}>
+              <Text style={styles.modalTitle}>Select a Room</Text>
+              {rooms.length > 0 ? (
+                rooms.map((room, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.roomItem}
+                    onPress={() => fetchResults(room.roomCode)}
+                  >
+                    <Text style={styles.roomText}>
+                      {room.roomName} ({room.roomCode})
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <Text style={styles.noData}>No rooms found</Text>
+              )}
+
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setRoomsVisible(false)}
+              >
+                <Text style={styles.closeText}>✖ Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </SafeAreaView>
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 80, alignItems: "center" },
-  topBar: { position: "absolute", top: 50, right: 20, zIndex: 20 },
+  container: { 
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  content: {
+    flex: 1,
+    alignItems: "center",
+    paddingTop: 20,
+  },
+  topBar: { 
+    paddingTop: 20, 
+    paddingBottom: 20,
+    alignItems: "flex-end",
+  },
   roomsButton: {
     flexDirection: "row",
     alignItems: "center",

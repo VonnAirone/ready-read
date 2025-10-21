@@ -1,4 +1,5 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
+import * as Font from 'expo-font';
 
 export const globalFonts = StyleSheet.create({
   regular: {
@@ -15,12 +16,22 @@ export const globalFonts = StyleSheet.create({
   },
 });
 
-// Font helper function
+// Font helper function with better error handling
 export const getFontFamily = (weight: 'regular' | 'medium' | 'semibold' | 'bold' = 'regular') => {
-  switch (weight) {
-    case 'medium': return 'Figtree-Medium';
-    case 'semibold': return 'Figtree-SemiBold';
-    case 'bold': return 'Figtree-Bold';
-    default: return 'Figtree-Regular';
+  const fontMap: Record<string, string> = {
+    regular: 'Figtree-Regular',
+    medium: 'Figtree-Medium',
+    semibold: 'Figtree-SemiBold', 
+    bold: 'Figtree-Bold',
+  };
+
+  const fontName = fontMap[weight];
+  
+  // Check if font is loaded, if not return system fallback
+  try {
+    return fontName;
+  } catch (error) {
+    console.warn(`Font ${fontName} not loaded, using system font`);
+    return Platform.OS === 'ios' ? 'System' : 'Roboto';
   }
 };

@@ -7,29 +7,36 @@ import { doc, getDoc } from "firebase/firestore";
 import * as SplashScreen from 'expo-splash-screen';
 import useCustomFonts from './hooks/useFonts';
 
-import LoginScreen from "./src/screens/auth/Login";
-import SignupScreen from "./src/screens/auth/Signup";
-import TeacherSignup from "./src/screens/teacher/TeacherSignup";
+import { OnboardingProvider, useOnboarding } from "./src/contexts/OnboardingContext";
+import CustomSplashScreen from "./src/screens/onboarding/AppSplashScreen";
 
-import RoomGenerator from "./src/screens/teacher/RoomGenerator";
-import Room from "./src/screens/teacher/Room";
-import AddPronunciation from "./src/screens/teacher/AddPronounciation";
-import ModifyPronunciation from "./src/screens/teacher/Pronounciation";
+import UserLogin from "./src/screens/auth/UserLogin";
+import UserRegistration from "./src/screens/auth/UserRegistration";
+import TeacherRegistration from "./src/screens/teacher/TeacherRegistration";
+import AppIntroduction from "./src/screens/onboarding/AppIntroduction";
 
-import GameMenuScreen from "./src/screens/student/MenuScreen";
-import CreatePlayername from "./src/screens/student/CreatePlayerName";
-import Join from "./src/screens/student/Join";
-import Read from "./src/screens/student/Read";
+import CreateGameRoom from "./src/screens/teacher/CreateGameRoom";
+import ManageGameRoom from "./src/screens/teacher/ManageGameRoom";
+import AddPronunciationWords from "./src/screens/teacher/AddPronunciationWords";
+import PronunciationWordsList from "./src/screens/teacher/PronunciationWordsList";
+
+import StudentDashboard from "./src/screens/student/StudentDashboard";
+import SetupPlayerProfile from "./src/screens/student/SetupPlayerProfile";
+import JoinGameRoom from "./src/screens/student/JoinGameRoom";
+import PronunciationGame from "./src/screens/student/PronunciationGame";
 import Leaderboard from "./src/screens/Leaderboard";
 import Confirm from "./src/screens/student/Confirm";
-import Progress from "./src/screens/student/Progress";
+import GameHistory from "./src/screens/student/GameHistory";
 
 const Stack = createNativeStackNavigator();
 
-export default function App() {
+const AppNavigation = () => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
+  const [hasPlayerName, setHasPlayerName] = useState<boolean>(false);
+  const [loading, setLoading] = useState(true);
+  const [showSplash, setShowSplash] = useState(true);
+  const { isFirstTime, isLoading, setFirstTimeComplete } = useOnboarding();
   const fontsLoaded = useCustomFonts();
 
   useEffect(() => {
@@ -37,19 +44,36 @@ export default function App() {
       setUser(currentUser);
 
       if (currentUser) {
-        // ✅ Check both collections properly
-        const teacherDoc = await getDoc(doc(db, "teacherAccounts", currentUser.uid));
-        const studentDoc = await getDoc(doc(db, "studentAccounts", currentUser.uid));
+        try {
+          // Check both collections properly
+          const teacherDoc = await getDoc(doc(db, "teacherAccounts", currentUser.uid));
+          const studentDoc = await getDoc(doc(db, "studentAccounts", currentUser.uid));
 
-        if (teacherDoc.exists()) {
-          setRole("teacher");
-        } else if (studentDoc.exists()) {
-          setRole("student");
-        } else {
-          setRole(null); // no role assigned
+          if (teacherDoc.exists()) {
+            setRole("teacher");
+            setHasPlayerName(true); // Teachers don't need player name check
+          } else if (studentDoc.exists()) {
+            setRole("student");
+            
+            // Check if student has a player name
+            const playerDoc = await getDoc(doc(db, "Playername", currentUser.uid));
+            if (playerDoc.exists() && playerDoc.data()?.playerName) {
+              setHasPlayerName(true);
+            } else {
+              setHasPlayerName(false);
+            }
+          } else {
+            setRole(null); // no role assigned
+            setHasPlayerName(false);
+          }
+        } catch (error) {
+          console.error("Error fetching user role:", error);
+          setRole(null);
+          setHasPlayerName(false);
         }
       } else {
         setRole(null);
+        setHasPlayerName(false);
       }
 
       setLoading(false);
@@ -58,55 +82,92 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  useEffect(() => {
-    async function prepare() {
-      await SplashScreen.preventAutoHideAsync();
-    }
-    prepare();
-  }, []);
-
-  if (!fontsLoaded || loading) {
-    return null; // Keep splash screen visible while loading
+  // Show splash screen while loading fonts or checking onboarding
+  if (!fontsLoaded || isLoading || showSplash) {
+    return (
+      <CustomSplashScreen 
+        onFinish={() => setShowSplash(false)} 
+      />
+    );
   }
 
-  SplashScreen.hideAsync(); // Hide splash screen when ready
+  // Show onboarding for first-time users who aren't logged in
+  if (isFirstTime && !user) {
+    const mockNavigation = {
+      navigate: (screen: string) => {
+        if (screen === 'Login') {
+          setFirstTimeComplete();
+        }
+      }
+    };
+    
+    return (
+      <AppIntroduction 
+        navigation={mockNavigation}
+      />
+    );
+  }
+
+  // Show loading while checking auth state
+  if (loading) {
+    return null;
+  }
 
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!user ? (
-          // 🔹 Auth screens
+          // Auth screens
           <>
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Signup" component={SignupScreen} />
-            <Stack.Screen name="TeacherSignup" component={TeacherSignup} />
+            <Stack.Screen name="Login" component={UserLogin} />
+            <Stack.Screen name="Signup" component={UserRegistration} />
+            <Stack.Screen name="TeacherSignup" component={TeacherRegistration} />
           </>
         ) : role === "teacher" ? (
-          // 🔹 Teacher Stack
+          // Teacher Stack
           <>
-            <Stack.Screen name="Room" component={Room} />
-            <Stack.Screen name="RoomGenerator" component={RoomGenerator} />
-            <Stack.Screen name="GameMenu" component={GameMenuScreen} />
-            <Stack.Screen name="AddPronunciation" component={AddPronunciation} />
-            <Stack.Screen name="Modify" component={ModifyPronunciation} />
+            <Stack.Screen name="Room" component={ManageGameRoom} />
+            <Stack.Screen name="RoomGenerator" component={CreateGameRoom} />
+            <Stack.Screen name="GameMenu" component={StudentDashboard} />
+            <Stack.Screen name="AddPronunciation" component={AddPronunciationWords} />
+            <Stack.Screen name="Modify" component={PronunciationWordsList} />
             <Stack.Screen name="Leaderboard" component={Leaderboard} />
           </>
         ) : role === "student" ? (
-          // 🔹 Student Stack
+          // Student Stack
           <>
-            <Stack.Screen name="CreatePlayerName" component={CreatePlayername} />
-            <Stack.Screen name="Room" component={Room} />
-            <Stack.Screen name="GameMenu" component={GameMenuScreen} />
-            <Stack.Screen name="Join" component={Join} />
-            <Stack.Screen name="Read" component={Read} />
+            {hasPlayerName ? (
+              // Student with existing player name - go directly to GameMenu
+              <>
+                <Stack.Screen name="GameMenu" component={StudentDashboard} />
+                <Stack.Screen name="CreatePlayerName" component={SetupPlayerProfile} />
+              </>
+            ) : (
+              // Student without player name - must create one first
+              <>
+                <Stack.Screen name="CreatePlayerName" component={SetupPlayerProfile} />
+                <Stack.Screen name="GameMenu" component={StudentDashboard} />
+              </>
+            )}
+            <Stack.Screen name="Room" component={ManageGameRoom} />
+            <Stack.Screen name="Join" component={JoinGameRoom} />
+            <Stack.Screen name="Read" component={PronunciationGame} />
             <Stack.Screen name="Confirm" component={Confirm} />
-            <Stack.Screen name="Progress" component={Progress} />
+            <Stack.Screen name="Progress" component={GameHistory} />
           </>
         ) : (
-          // ❌ Fallback if no role found
-          <Stack.Screen name="Login" component={LoginScreen} />
+          // Fallback if no role found
+          <Stack.Screen name="Login" component={UserLogin} />
         )}
       </Stack.Navigator>
     </NavigationContainer>
+  );
+};
+
+export default function App() {
+  return (
+    <OnboardingProvider>
+      <AppNavigation />
+    </OnboardingProvider>
   );
 }

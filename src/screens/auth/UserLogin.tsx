@@ -9,6 +9,8 @@ import {
   StyleSheet,
   Text,
   ActivityIndicator,
+  SafeAreaView,
+  StatusBar,
 } from "react-native";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "../../services/firebase";
@@ -46,37 +48,34 @@ const handleLogin = async () => {
 
 
   return (
-    <View style={styles.container}>
+    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.content}>
+          <View style={styles.box}>
+            <View style={styles.header}>
+              <Text style={styles.title}>Login</Text>
+              <Text style={styles.description}>Welcome back!</Text>
+            </View>
 
-      <View style={styles.box}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Login</Text>
-          <Text style={styles.description}>Welcome back!</Text>
-        </View>
+        <Text style={styles.label}>Email</Text>
+        <TextInput
+          placeholder="Enter your email"
+          value={email}
+          onChangeText={setEmail}
+          style={styles.input}
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
 
-
-        <View>
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            placeholder="Enter your email"
-            value={email}
-            onChangeText={setEmail}
-            style={styles.input}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-        </View>
-
-        <View>
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            placeholder="Enter your password"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-            style={styles.input}
-          />
-        </View>
+        <Text style={styles.label}>Password</Text>
+        <TextInput
+          placeholder="Enter your password"
+          secureTextEntry
+          value={password}
+          onChangeText={setPassword}
+          style={styles.input}
+        />
 
         <TouchableOpacity
           style={[styles.loginBtn, loading && { opacity: 0.7 }]}
@@ -100,25 +99,36 @@ const handleLogin = async () => {
             <Text style={styles.signupHighlight}>Sign Up</Text>
           </Text>
         </TouchableOpacity>
-      </View>
-    </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  safeArea: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  content: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
   },
   box: {
-    width: '90%',
-  },
-  logo: {
-    fontSize: 48,
-    textAlign: "center",
-    marginBottom: 10,
+    width: '100%',
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 30,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 10,
   },
   header: {
     marginBottom: 20,
@@ -141,7 +151,7 @@ const styles = StyleSheet.create({
     color: COLORS.black,
     fontFamily: getFontFamily('regular'),
     marginBottom: 10,
-  }, 
+  },
   input: {
     fontSize: 16,
     paddingVertical: 14,

@@ -7,6 +7,8 @@ import {
   ScrollView,
   Platform,
   Alert,
+  SafeAreaView,
+  StatusBar,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../services/firebase";
