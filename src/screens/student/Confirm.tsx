@@ -12,7 +12,7 @@ const Confirm = ({ navigation }: any) => {
   const handlePlay = () => {
     setModalVisible(false);
 
-    navigation.replace("Read", {
+    navigation.replace("PronunciationRoom", {
       roomData: {
         roomCode: roomcode,
         roomID: roomID,

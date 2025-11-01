@@ -24,6 +24,7 @@ export default function SetupPlayerProfile({ navigation }: any) {
   const [email, setEmail] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [isExisting, setIsExisting] = useState(false);
+  const [loading, setLoading] = useState(true); // Add loading state
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -32,27 +33,45 @@ export default function SetupPlayerProfile({ navigation }: any) {
         setEmail(user.email);
 
         try {
+          console.log("🔍 Checking player name for user:", user.uid);
           const playerRef = doc(db, "Playername", user.uid);
           const playerSnap = await getDoc(playerRef);
 
+          console.log("📋 Player document exists:", playerSnap.exists());
           if (playerSnap.exists()) {
-            const existingName = playerSnap.data().playerName;
+            const data = playerSnap.data();
+            console.log("📊 Player document data:", data);
+            const existingName = data?.playerName;
             if (existingName) {
+              console.log("✅ Found existing player name:", existingName);
               setPlayerName(existingName);
               setIsExisting(true);
+              // If user has a name, they shouldn't be on this screen - navigate to dashboard
+              setTimeout(() => {
+                navigation.replace("GameMenu");
+              }, 1000); // Small delay to show loading
+              return; // Don't set loading to false yet
+            } else {
+              console.log("❌ No player name found in document");
             }
+          } else {
+            console.log("📭 No player document found");
           }
         } catch (error) {
-          console.error("Error checking player name:", error);
+          console.error("❌ Error checking player name:", error);
         }
+        
+        // Only set loading to false if no existing player name
+        setLoading(false);
       } else {
         setUserId(null);
         setEmail(null);
+        setLoading(false);
       }
     });
 
     return unsubscribe;
-  }, []);
+  }, [navigation]);
 
   const handleSave = async () => {
     if (!playerName.trim()) {
@@ -114,47 +133,57 @@ export default function SetupPlayerProfile({ navigation }: any) {
     <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.topBar}>
-          <TouchableOpacity onPress={handleBackToLogin} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={15} style={styles.backButtonIcon}/>
-            <Text style={styles.backButtonText}>Back to Login</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.content}>
-          <View style={styles.modalPanel}>
-            <Text style={styles.title}>
-              {isExisting ? "Enter Name" : "Create Your Player Name"}
-            </Text>
-
-            <TextInput
-              style={[
-                styles.input,
-                isExisting && { color: "#bbb" },
-              ]}
-              placeholder="Enter player name"
-              placeholderTextColor="#ccc"
-              value={playerName}
-              onChangeText={(text) =>
-                setPlayerName(text.replace(/[^a-zA-Z ]/g, ""))
-              }
-              autoCapitalize="words"
-              editable={!isExisting}
-            />
-
-            <TouchableOpacity
-              style={[styles.continueButton, saving && { opacity: 0.7 }]}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator color="#1c1c1c" />
-              ) : (
-                <Text style={styles.continueText}>Continue</Text>
-              )}
-            </TouchableOpacity>
+        {loading ? (
+          // Loading state while checking for existing player name
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.white} />
+            <Text style={styles.loadingText}>Checking player profile...</Text>
           </View>
-        </View>
+        ) : (
+          <>
+            <View style={styles.topBar}>
+              <TouchableOpacity onPress={handleBackToLogin} style={styles.backButton}>
+                <Ionicons name="arrow-back" size={15} style={styles.backButtonIcon}/>
+                <Text style={styles.backButtonText}>Back to Login</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.content}>
+              <View style={styles.modalPanel}>
+                <Text style={styles.title}>
+                  {isExisting ? "Enter Name" : "Create Your Player Name"}
+                </Text>
+
+                <TextInput
+                  style={[
+                    styles.input,
+                    isExisting && { color: "#bbb" },
+                  ]}
+                  placeholder="Enter player name"
+                  placeholderTextColor="#ccc"
+                  value={playerName}
+                  onChangeText={(text) =>
+                    setPlayerName(text.replace(/[^a-zA-Z ]/g, ""))
+                  }
+                  autoCapitalize="words"
+                  editable={!isExisting}
+                />
+
+                <TouchableOpacity
+                  style={[styles.continueButton, saving && { opacity: 0.7 }]}
+                  onPress={handleSave}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <ActivityIndicator color="#1c1c1c" />
+                  ) : (
+                    <Text style={styles.continueText}>Continue</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </>
+        )}
       </SafeAreaView>
     </LinearGradient>
   );
@@ -176,6 +205,17 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    color: COLORS.white,
+    fontSize: 16,
+    marginTop: 12,
+    fontFamily: getFontFamily('regular'),
   },
   backButton: {
     flexDirection: "row",

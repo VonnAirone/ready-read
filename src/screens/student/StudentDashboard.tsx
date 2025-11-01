@@ -67,7 +67,7 @@ export default function StudentDashboard({ navigation }: any) {
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               style={[styles.menuButton, styles.playButton]}
-              onPress={() => navigation.navigate("Progress")}
+              onPress={() => navigation.navigate("PersonalProgress")}
               activeOpacity={0.8}
             >
               <View style={styles.buttonContent}>

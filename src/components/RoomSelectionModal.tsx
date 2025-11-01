@@ -69,7 +69,7 @@ export default function ModalRoom({ visible, onClose }: ModalRoomProps) {
 
   const handleJoinRoom = (room: Room) => {
     onClose();
-    navigation.navigate("Read", { roomData: room });
+    navigation.navigate("PronunciationRoom", { roomData: room });
   };
 
   return (

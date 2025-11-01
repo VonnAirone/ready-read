@@ -48,7 +48,7 @@ export interface LeaderboardEntry {
 
 export type AuthScreens = 'Login' | 'Signup' | 'TeacherSignup';
 export type TeacherScreens = 'RoomGenerator' | 'Room' | 'AddPronunciation' | 'Modify' | 'GameMenu' | 'Leaderboard';
-export type StudentScreens = 'CreatePlayerName' | 'Join' | 'Read' | 'GameMenu' | 'Room' | 'Start';
+export type StudentScreens = 'CreatePlayerName' | 'Join' | 'PronunciationRoom' | 'GameMenu' | 'Room' | 'Start';
 
 export type RootStackParamList = {
   // Auth
@@ -67,6 +67,6 @@ export type RootStackParamList = {
   // Student
   CreatePlayerName: undefined;
   Join: undefined;
-  Read: { roomData: Room };
+  PronunciationRoom: { roomData: Room };
   Start: { roomData: Room };
 };

@@ -26,7 +26,7 @@ import JoinGameRoom from "./src/screens/student/JoinGameRoom";
 import PronunciationGame from "./src/screens/student/PronunciationGame";
 import Leaderboard from "./src/screens/Leaderboard";
 import Confirm from "./src/screens/student/Confirm";
-import GameHistory from "./src/screens/student/GameHistory";
+import PersonalProgress from "./src/screens/student/PersonalProgress";
 
 const Stack = createNativeStackNavigator();
 
@@ -45,9 +45,14 @@ const AppNavigation = () => {
 
       if (currentUser) {
         try {
+          console.log("🔍 [App.tsx] Authenticated user:", currentUser.uid, currentUser.email);
+          
           // Check both collections properly
           const teacherDoc = await getDoc(doc(db, "teacherAccounts", currentUser.uid));
           const studentDoc = await getDoc(doc(db, "studentAccounts", currentUser.uid));
+
+          console.log("📋 [App.tsx] Teacher doc exists:", teacherDoc.exists());
+          console.log("📋 [App.tsx] Student doc exists:", studentDoc.exists());
 
           if (teacherDoc.exists()) {
             setRole("teacher");
@@ -56,15 +61,29 @@ const AppNavigation = () => {
             setRole("student");
             
             // Check if student has a player name
+            console.log("🔍 [App.tsx] Checking player name for user:", currentUser.uid);
             const playerDoc = await getDoc(doc(db, "Playername", currentUser.uid));
+            console.log("📋 [App.tsx] Player document exists:", playerDoc.exists());
             if (playerDoc.exists() && playerDoc.data()?.playerName) {
+              console.log("✅ [App.tsx] Found player name:", playerDoc.data()?.playerName);
               setHasPlayerName(true);
             } else {
+              console.log("❌ [App.tsx] No player name found");
               setHasPlayerName(false);
             }
           } else {
-            setRole(null); // no role assigned
-            setHasPlayerName(false);
+            // User is authenticated but has no role document - assume student and check for player name
+            console.log("⚠️ [App.tsx] No role document found, checking for player name directly");
+            const playerDoc = await getDoc(doc(db, "Playername", currentUser.uid));
+            if (playerDoc.exists() && playerDoc.data()?.playerName) {
+              console.log("✅ [App.tsx] Found player name, assuming student role");
+              setRole("student");
+              setHasPlayerName(true);
+            } else {
+              console.log("❌ [App.tsx] No player name, assuming new student");
+              setRole("student");
+              setHasPlayerName(false);
+            }
           }
         } catch (error) {
           console.error("Error fetching user role:", error);
@@ -137,23 +156,27 @@ const AppNavigation = () => {
           // Student Stack
           <>
             {hasPlayerName ? (
-              // Student with existing player name - go directly to GameMenu
+              // Student with existing player name - go directly to Dashboard
               <>
                 <Stack.Screen name="GameMenu" component={StudentDashboard} />
                 <Stack.Screen name="CreatePlayerName" component={SetupPlayerProfile} />
+                <Stack.Screen name="Join" component={JoinGameRoom} />
+                <Stack.Screen name="PronunciationRoom" component={PronunciationGame} />
+                <Stack.Screen name="Confirm" component={Confirm} />
+                <Stack.Screen name="PersonalProgress" component={PersonalProgress} />
               </>
             ) : (
               // Student without player name - must create one first
               <>
                 <Stack.Screen name="CreatePlayerName" component={SetupPlayerProfile} />
                 <Stack.Screen name="GameMenu" component={StudentDashboard} />
+                <Stack.Screen name="Join" component={JoinGameRoom} />
+                <Stack.Screen name="PronunciationRoom" component={PronunciationGame} />
+                <Stack.Screen name="Confirm" component={Confirm} />
+                <Stack.Screen name="PersonalProgress" component={PersonalProgress} />
               </>
             )}
             <Stack.Screen name="Room" component={ManageGameRoom} />
-            <Stack.Screen name="Join" component={JoinGameRoom} />
-            <Stack.Screen name="Read" component={PronunciationGame} />
-            <Stack.Screen name="Confirm" component={Confirm} />
-            <Stack.Screen name="Progress" component={GameHistory} />
           </>
         ) : (
           // Fallback if no role found
