@@ -13,26 +13,37 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { db } from "../../services/firebase";
-import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
+import { collection, query, where, getDocs, orderBy, doc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged, getAuth } from "firebase/auth";
 import { COLORS, GRADIENTS } from "../../constants/theme";
 import { getFontFamily } from "../../../styles/fonts";
+import { READER_LEVEL_INFO, determineReaderLevel } from "../../data/assessmentData";
+
+interface MacroLevelProgress {
+  words: { completed: boolean; scores: number[]; totalScore: number };
+  sentences: { completed: boolean; scores: number[]; totalScore: number };
+  paragraphs: { completed: boolean; scores: number[]; totalScore: number };
+}
 
 interface ProgressStats {
   totalAttempts: number;
   averageScore: number;
   perfectScores: number;
   improvementRate: number;
-  currentLevel: string;
-  nextLevel: string;
-  progressToNext: number;
+  readerLevel: 1 | 2 | 3 | 4;
+  macroLevel: number;
+  macroLevelProgress?: { [key: number]: MacroLevelProgress };
+  currentContentType?: 'words' | 'sentences' | 'paragraphs';
+  wordsCompleted: number;
+  sentencesCompleted: number;
+  paragraphsCompleted: number;
+  canAdvanceToNextMacro: boolean;
 }
 
 export default function PersonalProgress({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [stats, setStats] = useState<ProgressStats | null>(null);
-  const [recentScores, setRecentScores] = useState<any[]>([]);
   const [hasProgress, setHasProgress] = useState(false);
 
   const auth = getAuth();
@@ -53,8 +64,30 @@ export default function PersonalProgress({ navigation }: any) {
   const fetchPersonalProgress = async (email: string) => {
     setLoading(true);
     try {
-      // Query for all student results (both room and personal practice)
-      // We'll filter for personal practice on client side if needed
+      // Get user's current progress from StudentProgress collection
+      const user = auth.currentUser;
+      if (!user) return;
+
+      // For personal practice, use the personal practice document ID
+      const personalDocId = `${user.uid}_PERSONAL_PRACTICE`;
+      const progressDoc = await getDoc(doc(db, "StudentProgress", personalDocId));
+      let currentReaderLevel: 1 | 2 | 3 | 4 = 1;
+      let currentMacroLevel = 1;
+
+      let macroLevelProgress = {};
+      let currentContentType: 'words' | 'sentences' | 'paragraphs' = 'words';
+      
+      if (progressDoc.exists()) {
+        const progressData = progressDoc.data();
+        currentReaderLevel = progressData.readerLevel || progressData.studentLevel || 1;
+        currentMacroLevel = progressData.macroLevel || progressData.currentMacroLevel || 1;
+        macroLevelProgress = progressData.macroLevelProgress || {};
+        currentContentType = progressData.currentContentType || 'words';
+      } else {
+        console.log("No progress document found for user:", user.uid);
+      }
+
+      // Query for all student results
       const q = query(
         collection(db, "StudentResultJoin"),
         where("email", "==", email)
@@ -62,20 +95,59 @@ export default function PersonalProgress({ navigation }: any) {
       
       const snap = await getDocs(q);
       
+      // Calculate macro level progress
+      const currentMacroProgress = macroLevelProgress[currentMacroLevel] || {
+        words: { completed: false, scores: [], totalScore: 0 },
+        sentences: { completed: false, scores: [], totalScore: 0 },
+        paragraphs: { completed: false, scores: [], totalScore: 0 }
+      };
+
+      const wordsCompleted = currentMacroProgress.words?.scores?.length || 0;
+      const sentencesCompleted = currentMacroProgress.sentences?.scores?.length || 0;
+      const paragraphsCompleted = currentMacroProgress.paragraphs?.scores?.length || 0;
+
+      // Calculate if user can advance (70% average score across all completed challenges)
+      const allScores = [
+        ...(currentMacroProgress.words?.scores || []),
+        ...(currentMacroProgress.sentences?.scores || []),
+        ...(currentMacroProgress.paragraphs?.scores || [])
+      ];
+      const macroAvgScore = allScores.length > 0 
+        ? allScores.reduce((a, b) => a + b, 0) / allScores.length 
+        : 0;
+      const canAdvanceToNextMacro = macroAvgScore >= 70 && 
+        currentMacroProgress.words?.completed && 
+        currentMacroProgress.sentences?.completed && 
+        currentMacroProgress.paragraphs?.completed;
+
       if (snap.empty) {
-        setHasProgress(false);
+        // Even if no practice results, show current levels from StudentProgress
+        setStats({
+          totalAttempts: 0,
+          averageScore: 0,
+          perfectScores: 0,
+          improvementRate: 0,
+          readerLevel: currentReaderLevel,
+          macroLevel: currentMacroLevel,
+          macroLevelProgress,
+          currentContentType,
+          wordsCompleted,
+          sentencesCompleted,
+          paragraphsCompleted,
+          canAdvanceToNextMacro
+        });
+        setHasProgress(true); // Show levels even with no attempts
         setLoading(false);
         return;
       }
 
       setHasProgress(true);
       
-      // Get all results and sort by createdAt (client-side sorting)
+      // Get all results and sort by createdAt
       const allResults = snap.docs.map(doc => ({ 
         id: doc.id, 
         ...doc.data() 
       })).sort((a: any, b: any) => {
-        // Sort by createdAt descending (newest first)
         const aTime = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
         const bTime = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
         return bTime.getTime() - aTime.getTime();
@@ -95,45 +167,33 @@ export default function PersonalProgress({ navigation }: any) {
       const olderAvg = olderScores.length > 0 ? olderScores.reduce((a, b) => a + b, 0) / olderScores.length : recentAvg;
       const improvementRate = olderScores.length > 0 ? ((recentAvg - olderAvg) / olderAvg) * 100 : 0;
 
-      // Determine level based on average score
-      let currentLevel = "Beginner";
-      let nextLevel = "Intermediate";
-      let progressToNext = 0;
-
-      if (averageScore >= 90) {
-        currentLevel = "Expert";
-        nextLevel = "Master";
-        progressToNext = Math.min(100, ((averageScore - 90) / 10) * 100);
-      } else if (averageScore >= 75) {
-        currentLevel = "Advanced";
-        nextLevel = "Expert";
-        progressToNext = ((averageScore - 75) / 15) * 100;
-      } else if (averageScore >= 60) {
-        currentLevel = "Intermediate";
-        nextLevel = "Advanced";
-        progressToNext = ((averageScore - 60) / 15) * 100;
-      } else if (averageScore >= 40) {
-        currentLevel = "Beginner";
-        nextLevel = "Intermediate";
-        progressToNext = ((averageScore - 40) / 20) * 100;
-      } else {
-        currentLevel = "Novice";
-        nextLevel = "Beginner";
-        progressToNext = (averageScore / 40) * 100;
-      }
-
       setStats({
         totalAttempts,
         averageScore,
         perfectScores,
         improvementRate,
-        currentLevel,
-        nextLevel,
-        progressToNext
+        readerLevel: currentReaderLevel,
+        macroLevel: currentMacroLevel,
+        macroLevelProgress,
+        currentContentType,
+        wordsCompleted,
+        sentencesCompleted,
+        paragraphsCompleted,
+        canAdvanceToNextMacro
       });
 
-      // Set recent scores for display
-      setRecentScores(allResults.slice(0, 5));
+      console.log("Final stats object:", {
+        totalAttempts,
+        averageScore,
+        perfectScores,
+        improvementRate,
+        readerLevel: currentReaderLevel,
+        macroLevel: currentMacroLevel,
+        wordsCompleted,
+        sentencesCompleted,
+        paragraphsCompleted,
+        canAdvanceToNextMacro
+      });
       
     } catch (error) {
       console.error("Error fetching progress:", error);
@@ -146,47 +206,43 @@ export default function PersonalProgress({ navigation }: any) {
   const handleStartPractice = () => {
     if (!user) return;
     
-    // Create personal practice room data
-    const personalRoomData = {
-      roomCode: `PERSONAL_${user.uid}`, // Unique personal room code
-      roomName: "Personal Practice Room",
-      description: "Your private practice space",
-      isPersonalRoom: true,
-      userId: user.uid,
-      userEmail: user.email,
-      createdAt: new Date().toISOString(), // Convert to string for serialization
-    };
-    
-    // Navigate to pronunciation room with personal room data
-    navigation.navigate("PronunciationRoom", { 
-      roomData: personalRoomData,
-      fromPersonalProgress: true 
-    });
+    // Navigate to the dedicated personal practice room
+    navigation.navigate('PersonalPracticeRoom');
   };
 
   const handleGoBack = () => {
     navigation.goBack();
   };
 
-  const getLevelColor = (level: string) => {
+  const getReaderLevelColor = (level: 1 | 2 | 3 | 4) => {
+    console.log("Getting color for Reader Level:", level);
     switch (level) {
-      case "Master": return "#FFD700";
-      case "Expert": return "#FF6B35";
-      case "Advanced": return "#4ECDC4";
-      case "Intermediate": return "#45B7D1";
-      case "Beginner": return "#96CEB4";
-      default: return "#FFEAA7";
+      case 1: return "#96CEB4";  // Light Green
+      case 2: return "#FFEAA7";  // Light Yellow
+      case 3: return "#74B9FF";  // Light Blue
+      case 4: return "#FD79A8";  // Light Pink
+      default: return "#DDA0DD";
     }
   };
 
-  const renderProgressBar = (progress: number) => (
-    <View style={styles.progressBarContainer}>
-      <View style={styles.progressBarBg}>
-        <View style={[styles.progressBarFill, { width: `${Math.min(100, Math.max(0, progress))}%` }]} />
-      </View>
-      <Text style={styles.progressText}>{Math.round(progress)}%</Text>
-    </View>
-  );
+  const getMacroLevelColor = (level: number) => {
+    console.log("Getting color for Macro Level:", level);
+    // Color based on macro level ranges
+    if (level >= 25) return "#FFD700";      // Gold
+    if (level >= 20) return "#FF6B35";      // Orange
+    if (level >= 15) return "#4ECDC4";      // Teal
+    if (level >= 10) return "#45B7D1";      // Blue
+    if (level >= 5) return "#96CEB4";       // Green
+    return "#FFEAA7";                       // Yellow
+  };
+
+  const getReaderLevelName = (level: 1 | 2 | 3 | 4): string => {
+    return READER_LEVEL_INFO[level]?.label || `Reader Level ${level}`;
+  };
+
+  const getReaderLevelDescription = (level: 1 | 2 | 3 | 4): string => {
+    return READER_LEVEL_INFO[level]?.description || "";
+  };
 
   if (loading) {
     return (
@@ -219,7 +275,7 @@ export default function PersonalProgress({ navigation }: any) {
               <Ionicons name="mic-circle" size={80} color={COLORS.white} />
               <Text style={styles.initiationTitle}>Start Your Pronunciation Journey</Text>
               <Text style={styles.initiationSubtitle}>
-                No progress found yet. Begin practicing to track your pronunciation improvement!
+                Begin practicing to track your Reader Level and Macro Level progression!
               </Text>
               
               <TouchableOpacity 
@@ -253,64 +309,139 @@ export default function PersonalProgress({ navigation }: any) {
           
           {stats && (
             <>
-              {/* Current Level Section */}
-              <View style={styles.levelCard}>
-                <View style={styles.levelHeader}>
-                  <Text style={styles.levelLabel}>Current Level</Text>
-                  <View style={[styles.levelBadge, { backgroundColor: getLevelColor(stats.currentLevel) }]}>
-                    <Text style={styles.levelText}>{stats.currentLevel}</Text>
+              {console.log("Rendering stats in component:", stats)}
+              {/* Levels Section */}
+              <View style={styles.levelsContainer}>
+                {/* Reader Level Card */}
+                <View style={styles.levelCard}>
+                  <View style={styles.levelHeader}>
+                    <Text style={styles.levelLabel}>Current Level</Text>
+                    <View style={[styles.levelBadge, { backgroundColor: getReaderLevelColor(stats.readerLevel) }]}>
+                      <Text style={styles.levelText}>Reader Level {stats.readerLevel}</Text>
+                    </View>
                   </View>
-                </View>
-                
-                <Text style={styles.nextLevelText}>Next: {stats.nextLevel}</Text>
-                {renderProgressBar(stats.progressToNext)}
+                  <Text style={styles.levelName}>{getReaderLevelName(stats.readerLevel)}</Text>
+                  <Text style={styles.levelDescription}>{getReaderLevelDescription(stats.readerLevel)}</Text>
+                  
+                  {/* Overall Progress Indicator */}
+                  <View style={styles.overallProgressContainer}>
+                    <Text style={styles.overallProgressLabel}>Overall Completion</Text>
+                    <View style={styles.overallProgressBar}>
+                      <View 
+                        style={[
+                          styles.overallProgressFill, 
+                          { 
+                            width: `${((stats.readerLevel - 1) * 4 + stats.macroLevel) / 16 * 100}%`,
+                            backgroundColor: getReaderLevelColor(stats.readerLevel)
+                          }
+                        ]} 
+                      />
+                    </View>
+                    <Text style={styles.overallProgressText}>
+                      {((stats.readerLevel - 1) * 4 + stats.macroLevel)} of 16 total levels completed
+                    </Text>
+                  </View>
+                </View>  
               </View>
 
               {/* Stats Grid */}
               <View style={styles.statsGrid}>
                 <View style={styles.statCard}>
-                  <Ionicons name="trophy" size={32} color="#FFD700" />
-                  <Text style={styles.statNumber}>{stats.totalAttempts}</Text>
-                  <Text style={styles.statLabel}>Total Attempts</Text>
+                  <Ionicons name="school" size={32} color="#4ECDC4" />
+                  <Text style={styles.statNumber}>{stats.readerLevel}</Text>
+                  <Text style={styles.statLabel}>Reader Level</Text>
                 </View>
 
                 <View style={styles.statCard}>
-                  <Ionicons name="analytics" size={32} color="#4ECDC4" />
+                  <Ionicons name="layers" size={32} color="#FF6B35" />
+                  <Text style={styles.statNumber}>{stats.macroLevel}/4</Text>
+                  <Text style={styles.statLabel}>Macro Level</Text>
+                </View>
+
+                <View style={styles.statCard}>
+                  <Ionicons name="trophy" size={32} color="#FFD700" />
+                  <Text style={styles.statNumber}>{stats.totalAttempts}</Text>
+                  <Text style={styles.statLabel}>Practice Sessions</Text>
+                </View>
+
+                <View style={styles.statCard}>
+                  <Ionicons name="analytics" size={32} color="#96CEB4" />
                   <Text style={styles.statNumber}>{Math.round(stats.averageScore)}%</Text>
                   <Text style={styles.statLabel}>Average Score</Text>
                 </View>
-
-                <View style={styles.statCard}>
-                  <Ionicons name="star" size={32} color="#FF6B35" />
-                  <Text style={styles.statNumber}>{stats.perfectScores}</Text>
-                  <Text style={styles.statLabel}>Perfect Scores</Text>
-                </View>
-
-                <View style={styles.statCard}>
-                  <Ionicons name="trending-up" size={32} color={stats.improvementRate >= 0 ? "#96CEB4" : "#FF7675"} />
-                  <Text style={styles.statNumber}>
-                    {stats.improvementRate >= 0 ? '+' : ''}{Math.round(stats.improvementRate)}%
-                  </Text>
-                  <Text style={styles.statLabel}>Improvement</Text>
-                </View>
               </View>
 
-              {/* Recent Activity */}
-              <View style={styles.recentCard}>
-                <Text style={styles.recentTitle}>Recent Performance</Text>
-                {recentScores.map((result, index) => (
-                  <View key={index} style={styles.recentItem}>
-                    <View style={styles.recentInfo}>
-                      <Text style={styles.recentWord}>{result.word || 'Practice'}</Text>
-                      <Text style={styles.recentDate}>
-                        {result.createdAt?.toDate?.()?.toLocaleDateString() || 'Recent'}
-                      </Text>
+              {/* Macro Level Challenge Progress */}
+              <View style={styles.challengeSection}>
+                <Text style={styles.sectionTitle}>Current Macro Level Challenges</Text>
+                <Text style={styles.sectionSubtitle}>Complete all 3 challenges (10 items each) to advance</Text>
+                
+                {/* Words Challenge */}
+                <View style={styles.challengeCard}>
+                  <View style={styles.challengeHeader}>
+                    <View style={styles.challengeIconContainer}>
+                      <Ionicons name="text" size={24} color="#4ECDC4" />
                     </View>
-                    <View style={[styles.recentScore, { backgroundColor: result.score >= 80 ? '#96CEB4' : result.score >= 60 ? '#FFEAA7' : '#FF7675' }]}>
-                      <Text style={styles.recentScoreText}>{result.score}%</Text>
+                    <View style={styles.challengeInfo}>
+                      <Text style={styles.challengeTitle}>Words Challenge</Text>
+                      <Text style={styles.challengeProgress}>{stats.wordsCompleted}/10 completed</Text>
                     </View>
+                    {stats.macroLevelProgress?.[stats.macroLevel]?.words?.completed && (
+                      <Ionicons name="checkmark-circle" size={28} color="#34C759" />
+                    )}
                   </View>
-                ))}
+                  <View style={styles.progressBarContainer}>
+                    <View style={[styles.progressBar, { width: `${(stats.wordsCompleted / 10) * 100}%`, backgroundColor: '#4ECDC4' }]} />
+                  </View>
+                </View>
+
+                {/* Sentences Challenge */}
+                <View style={styles.challengeCard}>
+                  <View style={styles.challengeHeader}>
+                    <View style={styles.challengeIconContainer}>
+                      <Ionicons name="list" size={24} color="#FF6B35" />
+                    </View>
+                    <View style={styles.challengeInfo}>
+                      <Text style={styles.challengeTitle}>Sentences Challenge</Text>
+                      <Text style={styles.challengeProgress}>{stats.sentencesCompleted}/10 completed</Text>
+                    </View>
+                    {stats.macroLevelProgress?.[stats.macroLevel]?.sentences?.completed && (
+                      <Ionicons name="checkmark-circle" size={28} color="#34C759" />
+                    )}
+                  </View>
+                  <View style={styles.progressBarContainer}>
+                    <View style={[styles.progressBar, { width: `${(stats.sentencesCompleted / 10) * 100}%`, backgroundColor: '#FF6B35' }]} />
+                  </View>
+                </View>
+
+                {/* Paragraphs Challenge */}
+                <View style={styles.challengeCard}>
+                  <View style={styles.challengeHeader}>
+                    <View style={styles.challengeIconContainer}>
+                      <Ionicons name="document-text" size={24} color="#FFD700" />
+                    </View>
+                    <View style={styles.challengeInfo}>
+                      <Text style={styles.challengeTitle}>Paragraphs Challenge</Text>
+                      <Text style={styles.challengeProgress}>{stats.paragraphsCompleted}/10 completed</Text>
+                    </View>
+                    {stats.macroLevelProgress?.[stats.macroLevel]?.paragraphs?.completed && (
+                      <Ionicons name="checkmark-circle" size={28} color="#34C759" />
+                    )}
+                  </View>
+                  <View style={styles.progressBarContainer}>
+                    <View style={[styles.progressBar, { width: `${(stats.paragraphsCompleted / 10) * 100}%`, backgroundColor: '#FFD700' }]} />
+                  </View>
+                </View>
+
+                {/* Advancement Status */}
+                {stats.canAdvanceToNextMacro && (
+                  <View style={styles.advancementBanner}>
+                    <Ionicons name="trophy" size={24} color="#FFD700" />
+                    <Text style={styles.advancementText}>
+                      Ready to advance! Complete the practice to move to the next level.
+                    </Text>
+                  </View>
+                )}
               </View>
 
               {/* Action Button */}
@@ -427,11 +558,14 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     fontFamily: getFontFamily('bold'),
   },
+  levelsContainer: {
+    gap: 16,
+    marginBottom: 30,
+  },
   levelCard: {
     backgroundColor: "rgba(255, 255, 255, 0.15)",
     borderRadius: 20,
     padding: 20,
-    marginBottom: 20,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.2)",
   },
@@ -444,47 +578,69 @@ const styles = StyleSheet.create({
   levelLabel: {
     fontSize: 16,
     color: "rgba(255, 255, 255, 0.8)",
-    fontFamily: getFontFamily('regular'),
+    fontFamily: getFontFamily('medium'),
   },
   levelBadge: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
+    minWidth: 50,
+    alignItems: "center",
   },
   levelText: {
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+    fontFamily: getFontFamily('bold'),
+  },
+  levelName: {
+    fontSize: 18,
     fontWeight: "600",
-    color: "#000",
+    color: COLORS.white,
+    marginBottom: 8,
     fontFamily: getFontFamily('semibold'),
   },
-  nextLevelText: {
+  levelDescription: {
     fontSize: 14,
-    color: "rgba(255, 255, 255, 0.6)",
-    marginBottom: 12,
+    color: "rgba(255, 255, 255, 0.7)",
+    lineHeight: 20,
+    marginBottom: 16,
     fontFamily: getFontFamily('regular'),
   },
-  progressBarContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+  overallProgressContainer: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.2)",
   },
-  progressBarBg: {
-    flex: 1,
+  overallProgressLabel: {
+    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.8)",
+    marginBottom: 8,
+    fontFamily: getFontFamily('medium'),
+  },
+  overallProgressBar: {
     height: 8,
     backgroundColor: "rgba(255, 255, 255, 0.2)",
     borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: 8,
   },
-  progressBarFill: {
+  overallProgressFill: {
     height: "100%",
-    backgroundColor: COLORS.white,
     borderRadius: 4,
   },
-  progressText: {
+  overallProgressText: {
+    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.7)",
+    textAlign: "center",
+    fontFamily: getFontFamily('regular'),
+  },
+  nextLevelText: {
     fontSize: 14,
-    color: COLORS.white,
-    fontWeight: "600",
-    minWidth: 40,
-    fontFamily: getFontFamily('semibold'),
+    color: "rgba(255, 255, 255, 0.9)",
+    marginBottom: 12,
+    fontFamily: getFontFamily('medium'),
   },
   statsGrid: {
     flexDirection: "row",
@@ -516,55 +672,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontFamily: getFontFamily('regular'),
   },
-  recentCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
-  },
-  recentTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: COLORS.white,
-    marginBottom: 16,
-    fontFamily: getFontFamily('semibold'),
-  },
-  recentItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.1)",
-  },
-  recentInfo: {
-    flex: 1,
-  },
-  recentWord: {
-    fontSize: 16,
-    color: COLORS.white,
-    fontWeight: "500",
-    marginBottom: 2,
-    fontFamily: getFontFamily('medium'),
-  },
-  recentDate: {
-    fontSize: 12,
-    color: "rgba(255, 255, 255, 0.6)",
-    fontFamily: getFontFamily('regular'),
-  },
-  recentScore: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  recentScoreText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
-    fontFamily: getFontFamily('semibold'),
-  },
   practiceButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -579,6 +686,88 @@ const styles = StyleSheet.create({
   },
   practiceButtonText: {
     fontSize: 18,
+    fontWeight: "600",
+    color: COLORS.white,
+    fontFamily: getFontFamily('semibold'),
+  },
+  // Challenge Progress Section Styles
+  challengeSection: {
+    marginBottom: 25,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: COLORS.white,
+    marginBottom: 8,
+    fontFamily: getFontFamily('bold'),
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.7)",
+    marginBottom: 20,
+    fontFamily: getFontFamily('regular'),
+  },
+  challengeCard: {
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+  },
+  challengeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  challengeIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  challengeInfo: {
+    flex: 1,
+  },
+  challengeTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.white,
+    marginBottom: 4,
+    fontFamily: getFontFamily('semibold'),
+  },
+  challengeProgress: {
+    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.7)",
+    fontFamily: getFontFamily('regular'),
+  },
+  progressBarContainer: {
+    height: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  progressBar: {
+    height: "100%",
+    borderRadius: 4,
+  },
+  advancementBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 215, 0, 0.15)",
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255, 215, 0, 0.3)",
+    gap: 12,
+  },
+  advancementText: {
+    flex: 1,
+    fontSize: 14,
     fontWeight: "600",
     color: COLORS.white,
     fontFamily: getFontFamily('semibold'),

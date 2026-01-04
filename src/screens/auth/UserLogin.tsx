@@ -1,4 +1,3 @@
-// src/Auth/Login.tsx
 import React, { useState } from "react";
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -12,6 +11,7 @@ import {
   SafeAreaView,
   StatusBar,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "../../services/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -22,6 +22,7 @@ export default function LoginScreen({ navigation }: any) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
 const handleLogin = async () => {
   if (!email || !password) {
@@ -69,13 +70,18 @@ const handleLogin = async () => {
         />
 
         <Text style={styles.label}>Password</Text>
-        <TextInput
-          placeholder="Enter your password"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-          style={styles.input}
-        />
+        <View style={styles.passwordContainer}>
+          <TextInput
+            placeholder="Enter your password"
+            secureTextEntry={!showPassword}
+            value={password}
+            onChangeText={setPassword}
+            style={[styles.input, styles.passwordInput]}
+          />
+          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+            <Ionicons name={showPassword ? "eye" : "eye-off"} size={22} color="#999" />
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
           style={[styles.loginBtn, loading && { opacity: 0.7 }]}
@@ -161,6 +167,20 @@ const styles = StyleSheet.create({
     backgroundColor: "#fafafa",
     fontFamily: getFontFamily('regular'),
     minHeight: 48, // Ensure consistent height
+  },
+  passwordContainer: {
+    position: "relative",
+    width: "100%",
+  },
+  passwordInput: {
+    paddingRight: 50, // Make space for eye icon
+    marginBottom: 15,
+  },
+  eyeIcon: {
+    position: "absolute",
+    right: 15,
+    top: 14,
+    zIndex: 1,
   },
   loginBtn: {
     backgroundColor: COLORS.primary,

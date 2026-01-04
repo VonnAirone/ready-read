@@ -15,7 +15,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 // ✅ Initialize Auth with persistence for React Native
-// The warning will appear but persistence will work in practice
+// React Native has built-in auth persistence with AsyncStorage
 let auth;
 try {
   auth = initializeAuth(app);

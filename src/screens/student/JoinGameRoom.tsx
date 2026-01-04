@@ -44,6 +44,10 @@ export default function Join() {
         return;
       }
 
+      // Get teacher ID from GenerateRoom
+      const generateRoomData = genSnap.docs[0].data();
+      const teacherId = generateRoomData.createdBy || "";
+
       // 2️⃣ Check if room has data in PronunciationRoom
       const dataQuery = query(
         collection(db, "PronunciationRoom"),
@@ -67,6 +71,8 @@ export default function Join() {
         name: roomData.name || "",
         playername: roomData.playername || "",
         email: roomData.email || "",
+        teacherId: teacherId,
+        createdBy: teacherId,
       });
     } catch (err) {
       console.error("Error entering room:", err);

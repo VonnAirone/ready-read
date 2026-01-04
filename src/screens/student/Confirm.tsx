@@ -6,7 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 
 const Confirm = ({ navigation }: any) => {
   const route = useRoute<any>();
-  const { roomcode, roomID, roomname, name, playername, email, words, word, difficulty } = route.params || {};
+  const { roomcode, roomID, roomname, name, playername, email, words, word, difficulty, teacherId, createdBy } = route.params || {};
   const [modalVisible, setModalVisible] = useState(true);
 
   const handlePlay = () => {
@@ -23,6 +23,8 @@ const Confirm = ({ navigation }: any) => {
         words,
         word,
         difficulty: difficulty || "easy",
+        teacherId: teacherId || createdBy || "",
+        createdBy: teacherId || createdBy || "",
       },
     });
   };

@@ -1,0 +1,259 @@
+import { PronunciationContent } from './contentTypes';
+
+export const pronunciationContent: PronunciationContent = {
+  "reader_level_1": {
+    "macro_1": {
+      "words": [
+        {
+          "word": "area",
+          "difficulty": "medium"
+        },
+        {
+          "word": "environment",
+          "difficulty": "expert"
+        },
+        {
+          "word": "process",
+          "difficulty": "hard"
+        },
+        {
+          "word": "factor",
+          "difficulty": "medium"
+        },
+        {
+          "word": "source",
+          "difficulty": "medium"
+        },
+        {
+          "word": "occur",
+          "difficulty": "medium"
+        },
+        {
+          "word": "issue",
+          "difficulty": "medium"
+        },
+        {
+          "word": "volume",
+          "difficulty": "medium"
+        },
+        {
+          "word": "acquire",
+          "difficulty": "hard"
+        },
+        {
+          "word": "phase",
+          "difficulty": "medium"
+        }
+      ],
+      "sentences": [
+        "The 100 sentences for Macro Level 1, ordered 1 through 100.",
+        "The 100 paragraphs for Macro Level 1, ordered 1 through 100.",
+        "The data showed a parallel sequence of events that occurred during the initial phase."
+      ],
+      "paragraphs": [
+        "lists: Words, Sentences, and Paragraphs. This format is designed for straightforward copy-paste",
+        "into implementation logic or documentation.",
+        "I. All 100 Core Vocabulary Words",
+        "The 100 words for Macro Level 1, listed sequentially by their Tier group (1-10, 11-20, etc.).",
+        "II. All 100 Sentences",
+        "III. All 100 Paragraphs",
+        "issue was determining the exact volume of existing material. This factor was integral to",
+        "planning the subsequent cleanup process. We needed to acquire this information",
+        "quickly. (67 words)",
+        "process is the source of a rational approach to problem-solving. It is integral to"
+      ]
+    }
+  },
+  "reader_level_2": {
+    "macro_2": {
+      "words": [
+        {
+          "word": "culture",
+          "difficulty": "hard"
+        },
+        {
+          "word": "contrast",
+          "difficulty": "hard"
+        },
+        {
+          "word": "feature",
+          "difficulty": "hard"
+        },
+        {
+          "word": "perceive",
+          "difficulty": "hard"
+        },
+        {
+          "word": "perspective",
+          "difficulty": "expert"
+        },
+        {
+          "word": "interpret",
+          "difficulty": "hard"
+        },
+        {
+          "word": "mediate",
+          "difficulty": "hard"
+        },
+        {
+          "word": "reinforce",
+          "difficulty": "hard"
+        },
+        {
+          "word": "denote",
+          "difficulty": "medium"
+        },
+        {
+          "word": "inherent",
+          "difficulty": "hard"
+        }
+      ],
+      "sentences": [
+        "The 100 words for Macro Level 2, listed sequentially by their Tier group.",
+        "The 100 sentences for Macro Level 2, ordered 1 through 100.",
+        "The 100 paragraphs for Macro Level 2, ordered 1 through 100.",
+        "We must utilize a quantitative approach to verify the magnitude of this displacement.",
+        "The decline in capacity will expose a major issue with the subordinate component.",
+        "We must utilize a quantitative approach to verify the magnitude of this differentiation."
+      ],
+      "paragraphs": [
+        "lists: Words, Sentences, and Paragraphs. This format is designed for straightforward copy-paste",
+        "into implementation logic or documentation.",
+        "I. All 100 Core Vocabulary Words",
+        "II. All 100 Sentences",
+        "III. All 100 Paragraphs",
+        "feature we plan to implement. It is crucial that we perceive this tension accurately. The",
+        "the initial goals. This mediation will sustain the overall project essence. (72 words)",
+        "interpretation could distort the final outcome. The fundamental objective is to derive a",
+        "profound understanding of their needs. This understanding will reinforce the validity of",
+        "the entire hypothesis. (69 words)"
+      ]
+    }
+  },
+  "reader_level_3": {
+    "macro_3": {
+      "words": [
+        {
+          "word": "integrate",
+          "difficulty": "hard"
+        },
+        {
+          "word": "articulate",
+          "difficulty": "expert"
+        },
+        {
+          "word": "disseminate",
+          "difficulty": "expert"
+        },
+        {
+          "word": "converge",
+          "difficulty": "hard"
+        },
+        {
+          "word": "diverge",
+          "difficulty": "hard"
+        },
+        {
+          "word": "global",
+          "difficulty": "medium"
+        },
+        {
+          "word": "local",
+          "difficulty": "medium"
+        },
+        {
+          "word": "architecture",
+          "difficulty": "expert"
+        },
+        {
+          "word": "commerce",
+          "difficulty": "hard"
+        },
+        {
+          "word": "treaty",
+          "difficulty": "medium"
+        }
+      ],
+      "sentences": [
+        "The 100 words for Macro Level 3, listed sequentially.",
+        "The 100 sentences for Macro Level 3, ordered 1 through 100.",
+        "The 100 paragraphs for Macro Level 3, ordered 1 through 100."
+      ],
+      "paragraphs": [
+        "of global systems, complex coordination, and high-level communication.",
+        "I. All 100 Core Vocabulary Words",
+        "II. All 100 Sentences",
+        "testing.",
+        "agreements.",
+        "governance.",
+        "the plan.",
+        "norm.",
+        "discourse.",
+        "opposition."
+      ]
+    }
+  },
+  "reader_level_4": {
+    "macro_4": {
+      "words": [
+        {
+          "word": "paradigm",
+          "difficulty": "hard"
+        },
+        {
+          "word": "ontology",
+          "difficulty": "hard"
+        },
+        {
+          "word": "epistemology",
+          "difficulty": "expert"
+        },
+        {
+          "word": "metaphysics",
+          "difficulty": "expert"
+        },
+        {
+          "word": "asceticism",
+          "difficulty": "expert"
+        },
+        {
+          "word": "hedonism",
+          "difficulty": "hard"
+        },
+        {
+          "word": "relativism",
+          "difficulty": "expert"
+        },
+        {
+          "word": "absolutism",
+          "difficulty": "expert"
+        },
+        {
+          "word": "existential",
+          "difficulty": "expert"
+        },
+        {
+          "word": "utilitarian",
+          "difficulty": "expert"
+        }
+      ],
+      "sentences": [
+        "The 100 words for Macro Level 4, listed sequentially.",
+        "The 100 sentences for Macro Level 4, ordered 1 through 100.",
+        "The 100 paragraphs for Macro Level 4, ordered 1 through 100."
+      ],
+      "paragraphs": [
+        "intangible concepts related to human thought, belief systems, and theoretical frameworks.",
+        "I. All 100 Core Vocabulary Words",
+        "II. All 100 Sentences",
+        "objects.",
+        "state.",
+        "agreement.",
+        "study.",
+        "hypothesis.",
+        "analysis.",
+        "lexicon."
+      ]
+    }
+  }
+};

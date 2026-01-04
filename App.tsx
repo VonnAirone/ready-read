@@ -16,17 +16,21 @@ import TeacherRegistration from "./src/screens/teacher/TeacherRegistration";
 import AppIntroduction from "./src/screens/onboarding/AppIntroduction";
 
 import CreateGameRoom from "./src/screens/teacher/CreateGameRoom";
-import ManageGameRoom from "./src/screens/teacher/ManageGameRoom";
-import AddPronunciationWords from "./src/screens/teacher/AddPronunciationWords";
+import ManageRooms from "./src/screens/teacher/ManageRooms";
+import RoomStudents from "./src/screens/teacher/RoomStudents";
+import TeacherDashboard from "./src/screens/teacher/TeacherDashboard";
+import StudentList from "./src/screens/teacher/StudentList";
 import PronunciationWordsList from "./src/screens/teacher/PronunciationWordsList";
 
 import StudentDashboard from "./src/screens/student/StudentDashboard";
 import SetupPlayerProfile from "./src/screens/student/SetupPlayerProfile";
 import JoinGameRoom from "./src/screens/student/JoinGameRoom";
-import PronunciationGame from "./src/screens/student/PronunciationGame";
+import RegularRoom from "./src/screens/student/RegularRoom";
 import Leaderboard from "./src/screens/Leaderboard";
 import Confirm from "./src/screens/student/Confirm";
 import PersonalProgress from "./src/screens/student/PersonalProgress";
+import PersonalPracticeRoom from "./src/screens/student/PersonalPracticeRoom";
+import populateGameContent from "./src/data/demoContent";
 
 const Stack = createNativeStackNavigator();
 
@@ -38,6 +42,24 @@ const AppNavigation = () => {
   const [showSplash, setShowSplash] = useState(true);
   const { isFirstTime, isLoading, setFirstTimeComplete } = useOnboarding();
   const fontsLoaded = useCustomFonts();
+
+  // Initialize game content on app startup
+  useEffect(() => {
+    const initializeContent = async () => {
+      try {
+        const contentLoaded = populateGameContent();
+        if (contentLoaded) {
+          console.log('✅ Game content loaded successfully!');
+        } else {
+          console.log('❌ Failed to load game content');
+        }
+      } catch (error) {
+        console.error('Error initializing content:', error);
+      }
+    };
+    
+    initializeContent();
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -145,10 +167,12 @@ const AppNavigation = () => {
         ) : role === "teacher" ? (
           // Teacher Stack
           <>
-            <Stack.Screen name="Room" component={ManageGameRoom} />
+            <Stack.Screen name="TeacherDashboard" component={TeacherDashboard} />
+            <Stack.Screen name="StudentList" component={StudentList} />
+            <Stack.Screen name="Room" component={ManageRooms} />
+            <Stack.Screen name="RoomStudents" component={RoomStudents} />
             <Stack.Screen name="RoomGenerator" component={CreateGameRoom} />
             <Stack.Screen name="GameMenu" component={StudentDashboard} />
-            <Stack.Screen name="AddPronunciation" component={AddPronunciationWords} />
             <Stack.Screen name="Modify" component={PronunciationWordsList} />
             <Stack.Screen name="Leaderboard" component={Leaderboard} />
           </>
@@ -161,9 +185,10 @@ const AppNavigation = () => {
                 <Stack.Screen name="GameMenu" component={StudentDashboard} />
                 <Stack.Screen name="CreatePlayerName" component={SetupPlayerProfile} />
                 <Stack.Screen name="Join" component={JoinGameRoom} />
-                <Stack.Screen name="PronunciationRoom" component={PronunciationGame} />
+                <Stack.Screen name="PronunciationRoom" component={RegularRoom} />
                 <Stack.Screen name="Confirm" component={Confirm} />
                 <Stack.Screen name="PersonalProgress" component={PersonalProgress} />
+                <Stack.Screen name="PersonalPracticeRoom" component={PersonalPracticeRoom} />
               </>
             ) : (
               // Student without player name - must create one first
@@ -171,12 +196,13 @@ const AppNavigation = () => {
                 <Stack.Screen name="CreatePlayerName" component={SetupPlayerProfile} />
                 <Stack.Screen name="GameMenu" component={StudentDashboard} />
                 <Stack.Screen name="Join" component={JoinGameRoom} />
-                <Stack.Screen name="PronunciationRoom" component={PronunciationGame} />
+                <Stack.Screen name="PronunciationRoom" component={RegularRoom} />
                 <Stack.Screen name="Confirm" component={Confirm} />
                 <Stack.Screen name="PersonalProgress" component={PersonalProgress} />
+                <Stack.Screen name="PersonalPracticeRoom" component={PersonalPracticeRoom} />
               </>
             )}
-            <Stack.Screen name="Room" component={ManageGameRoom} />
+            <Stack.Screen name="Room" component={ManageRooms} />
           </>
         ) : (
           // Fallback if no role found

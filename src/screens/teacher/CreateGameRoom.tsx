@@ -6,7 +6,12 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  SafeAreaView,
+  StatusBar,
+  ScrollView,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../services/firebase";
 import {
   collection,
@@ -15,8 +20,10 @@ import {
   doc,
   getDoc,
 } from "firebase/firestore";
+import { COLORS, GRADIENTS } from "../../constants/theme";
+import { getFontFamily } from "../../../styles/fonts";
 
-export default function RoomGenerator({ navigation }: any) {
+export default function CreateGameRoom({ navigation }: any) {
   const [roomName, setRoomName] = useState("");
   const [creatorName, setCreatorName] = useState("");
   const [roomCode, setRoomCode] = useState("");
@@ -87,17 +94,23 @@ export default function RoomGenerator({ navigation }: any) {
 
       Alert.alert(
         "Success",
-        `Room "${roomName}" created with code: ${roomCode}\nQuiz ID: ${quizId}`
+        `Room "${roomName}" created successfully!`,
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              // Navigate to Room management after creation
+              navigation.navigate("Room", {
+                roomId: docRef.id,
+                roomName,
+                creatorName,
+                roomCode,
+                quizId,
+              });
+            },
+          },
+        ]
       );
-
-      // ✅ Navigate to Room.tsx after creating
-      navigation.navigate("Room", {
-        roomId: docRef.id,
-        roomName,
-        creatorName,
-        roomCode,
-        quizId,
-      });
 
       setRoomName("");
       setRoomCode("");
@@ -109,102 +122,287 @@ export default function RoomGenerator({ navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      {/* 🔙 Back Button */}
-      <TouchableOpacity
-        style={styles.backBtn}
-        onPress={async () => {
-          try {
-            await auth.signOut(); // 👈 sign out first
-            navigation.replace("Login"); // rebuilds stack with Login
-          } catch (err) {
-            console.error("Error signing out:", err);
-          }
-        }}
-      >
-        <Text style={styles.backText}>← Back</Text>
-      </TouchableOpacity>
+    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+      <SafeAreaView style={styles.safeArea}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Create Room</Text>
+          <View style={styles.headerRight} />
+        </View>
 
-      <Text style={styles.title}>Create a Room</Text>
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          {/* Room Creation Card */}
+          <View style={styles.formCard}>
+            <View>
+              {/* Form Header */}
+              <View style={styles.formHeader}>
+                <View style={styles.iconContainer}>
+                  <Ionicons name="home" size={32} color="white" />
+                </View>
+                <Text style={styles.formTitle}>New Pronunciation Room</Text>
+                <Text style={styles.formSubtitle}>Create a space for students to practice</Text>
+              </View>
 
-      {/* Room Name */}
-      <TextInput
-        style={styles.input}
-        placeholder="Room Name"
-        value={roomName}
-        onChangeText={setRoomName}
-      />
+              {/* Room Name Input */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Room Name</Text>
+                <View style={styles.inputWrapper}>
+                  <Ionicons name="text-outline" size={20} color="rgba(255,255,255,0.7)" />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter room name"
+                    placeholderTextColor="rgba(255,255,255,0.5)"
+                    value={roomName}
+                    onChangeText={setRoomName}
+                  />
+                </View>
+              </View>
 
-      {/* Creator Name (auto-filled, read-only) */}
-      <TextInput
-        style={[styles.input, { backgroundColor: "#eee" }]}
-        value={creatorName}
-        editable={false}
-      />
+              {/* Teacher Name (Auto-filled) */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Created By</Text>
+                <View style={[styles.inputWrapper, styles.disabledInput]}>
+                  <Ionicons name="person-outline" size={20} color="rgba(255,255,255,0.7)" />
+                  <TextInput
+                    style={[styles.input, styles.disabledInputText]}
+                    value={creatorName}
+                    editable={false}
+                  />
+                </View>
+              </View>
 
-      {/* Room Code */}
-      <View style={styles.codeRow}>
-        <Text style={styles.roomCode}>Room Code: {roomCode || "____"}</Text>
-        <TouchableOpacity style={styles.generateBtn} onPress={generateCode}>
-          <Text style={styles.btnText}>Generate</Text>
-        </TouchableOpacity>
-      </View>
+              {/* Room Code Section */}
+              <View style={styles.codeSection}>
+                <Text style={styles.inputLabel}>Room Code</Text>
+                <View style={styles.codeContainer}>
+                  <View style={styles.codeDisplay}>
+                    <Ionicons name="key-outline" size={20} color="white" />
+                    <Text style={styles.codeText}>{roomCode || "------"}</Text>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.generateButton}
+                    onPress={generateCode}
+                  >
+                    <Ionicons name="refresh" size={20} color="white" />
+                    <Text style={styles.generateButtonText}>Generate</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
 
-      {/* Save Button */}
-      <TouchableOpacity style={styles.saveBtn} onPress={saveRoom}>
-        <Text style={styles.btnText}>Save Room</Text>
-      </TouchableOpacity>
+              {/* Action Buttons */}
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity 
+                  style={styles.saveButton}
+                  onPress={saveRoom}
+                >
+                  <Ionicons name="checkmark-circle" size={24} color="white" />
+                  <Text style={styles.saveButtonText}>Create Room</Text>
+                </TouchableOpacity>
 
-      {/* View Rooms Button */}
-      <TouchableOpacity
-        style={[styles.saveBtn, { backgroundColor: "#007AFF", marginTop: 10 }]}
-        onPress={() => navigation.navigate("Room")}
-      >
-        <Text style={styles.btnText}>View Rooms</Text>
-      </TouchableOpacity>
-    </View>
+                <TouchableOpacity
+                  style={styles.viewRoomsButton}
+                  onPress={() => navigation.navigate("Room")}
+                >
+                  <Ionicons name="list-outline" size={20} color="white" />
+                  <Text style={styles.viewRoomsButtonText}>View All Rooms</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: "#f8f9fa" },
-  backBtn: { alignSelf: "flex-start", marginBottom: 10 },
-  backText: { fontSize: 16, color: "#007AFF", fontWeight: "600" },
+  container: {
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingTop: 20,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   title: {
-    fontSize: 24,
-    fontWeight: "bold",
+    fontSize: 20,
+    fontFamily: getFontFamily('semibold'),
+    color: 'white',
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: 16,
+  },
+  headerRight: {
+    width: 40,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  formCard: {
+    overflow: 'hidden',
     marginBottom: 20,
-    textAlign: "center",
-    color: "#333",
+  },
+  formGradient: {
+    padding: 24,
+  },
+  formHeader: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  iconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  formTitle: {
+    fontSize: 24,
+    fontFamily: getFontFamily('bold'),
+    color: 'white',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  formSubtitle: {
+    fontSize: 16,
+    fontFamily: getFontFamily('regular'),
+    color: 'rgba(255,255,255,0.7)',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  inputContainer: {
+    marginBottom: 15,
+  },
+  inputLabel: {
+    fontSize: 16,
+    fontFamily: getFontFamily('medium'),
+    color: 'white',
+    marginBottom: 8,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  disabledInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    opacity: 0.7,
   },
   input: {
-    width: "100%",
-    padding: 15,
-    marginVertical: 10,
+    flex: 1,
+    fontSize: 16,
+    fontFamily: getFontFamily('medium'),
+    color: 'white',
+    paddingVertical: 16,
+    paddingLeft: 12,
+  },
+  disabledInputText: {
+    color: 'rgba(255,255,255,0.8)',
+  },
+  codeSection: {
+    marginBottom: 32,
+  },
+  codeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  codeDisplay: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  codeText: {
+    fontSize: 20,
+    fontFamily: getFontFamily('bold'),
+    color: 'white',
+    marginLeft: 12,
+    letterSpacing: 2,
+  },
+  generateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 6,
+  },
+  generateButtonText: {
+    fontSize: 14,
+    fontFamily: getFontFamily('medium'),
+    color: 'white',
+  },
+  buttonContainer: {
+    gap: 16,
+  },
+  saveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    gap: 8,
+  },
+  saveButtonText: {
+    fontSize: 18,
+    fontFamily: getFontFamily('semibold'),
+    color: 'white',
+  },
+  viewRoomsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    backgroundColor: "#fff",
+    borderColor: 'rgba(255,255,255,0.3)',
+    gap: 8,
   },
-  codeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 20,
-    justifyContent: "space-between",
+  viewRoomsButtonText: {
+    fontSize: 16,
+    fontFamily: getFontFamily('medium'),
+    color: 'white',
   },
-  roomCode: { fontSize: 18, fontWeight: "600", color: "#444" },
-  generateBtn: {
-    backgroundColor: "#007AFF",
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 8,
-  },
-  saveBtn: {
-    backgroundColor: "green",
-    paddingVertical: 15,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 20,
-  },
-  btnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
 });
