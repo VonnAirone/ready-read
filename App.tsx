@@ -21,6 +21,7 @@ import RoomStudents from "./src/screens/teacher/RoomStudents";
 import TeacherDashboard from "./src/screens/teacher/TeacherDashboard";
 import StudentList from "./src/screens/teacher/StudentList";
 import PronunciationWordsList from "./src/screens/teacher/PronunciationWordsList";
+import AssessmentResults from "./src/screens/teacher/AssessmentResults";
 
 import StudentDashboard from "./src/screens/student/StudentDashboard";
 import SetupPlayerProfile from "./src/screens/student/SetupPlayerProfile";
@@ -30,6 +31,7 @@ import Leaderboard from "./src/screens/Leaderboard";
 import Confirm from "./src/screens/student/Confirm";
 import PersonalProgress from "./src/screens/student/PersonalProgress";
 import PersonalPracticeRoom from "./src/screens/student/PersonalPracticeRoom";
+import PracticeGame from "./src/screens/student/PracticeGame";
 import populateGameContent from "./src/data/demoContent";
 
 const Stack = createNativeStackNavigator();
@@ -169,6 +171,7 @@ const AppNavigation = () => {
           <>
             <Stack.Screen name="TeacherDashboard" component={TeacherDashboard} />
             <Stack.Screen name="StudentList" component={StudentList} />
+            <Stack.Screen name="AssessmentResults" component={AssessmentResults} />
             <Stack.Screen name="Room" component={ManageRooms} />
             <Stack.Screen name="RoomStudents" component={RoomStudents} />
             <Stack.Screen name="RoomGenerator" component={CreateGameRoom} />
@@ -189,6 +192,7 @@ const AppNavigation = () => {
                 <Stack.Screen name="Confirm" component={Confirm} />
                 <Stack.Screen name="PersonalProgress" component={PersonalProgress} />
                 <Stack.Screen name="PersonalPracticeRoom" component={PersonalPracticeRoom} />
+                <Stack.Screen name="PracticeGame" component={PracticeGame} />
               </>
             ) : (
               // Student without player name - must create one first
@@ -200,6 +204,7 @@ const AppNavigation = () => {
                 <Stack.Screen name="Confirm" component={Confirm} />
                 <Stack.Screen name="PersonalProgress" component={PersonalProgress} />
                 <Stack.Screen name="PersonalPracticeRoom" component={PersonalPracticeRoom} />
+                <Stack.Screen name="PracticeGame" component={PracticeGame} />
               </>
             )}
             <Stack.Screen name="Room" component={ManageRooms} />

@@ -35,6 +35,9 @@ export interface GameProgress {
   currentMacroLevel: 1 | 2 | 3 | 4;
   currentSubLevel: number;        // 1-30 (10 words + 10 sentences + 10 paragraphs)
   completedContent: string[];     // Track used content IDs
+  usedIndices: {                  // Track used content indices for randomization
+    [key: string]: number[];      // key format: "r{reader}_m{macro}_{type}" (e.g., "r1_m1_words")
+  };
   scores: {
     [contentId: string]: {
       phonemeAccuracy: number;    // 60% weight
@@ -65,7 +68,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m1_w7", content: "happy", difficulty: 3, points: 1, keyWords: ["happy"] },
           { id: "r1_m1_w8", content: "street", difficulty: 3, points: 1, keyWords: ["street"] },
           { id: "r1_m1_w9", content: "friend", difficulty: 3, points: 1, keyWords: ["friend"] },
-          { id: "r1_m1_w10", content: "family", difficulty: 3, points: 1, keyWords: ["family"] }
+          { id: "r1_m1_w10", content: "family", difficulty: 3, points: 1, keyWords: ["family"] },
+          { id: "r1_m1_w11", content: "dog", difficulty: 1, points: 1, keyWords: ["dog"] },
+          { id: "r1_m1_w12", content: "moon", difficulty: 1, points: 1, keyWords: ["moon"] },
+          { id: "r1_m1_w13", content: "pen", difficulty: 1, points: 1, keyWords: ["pen"] },
+          { id: "r1_m1_w14", content: "car", difficulty: 1, points: 1, keyWords: ["car"] },
+          { id: "r1_m1_w15", content: "tree", difficulty: 1, points: 1, keyWords: ["tree"] },
+          { id: "r1_m1_w16", content: "door", difficulty: 2, points: 1, keyWords: ["door"] },
+          { id: "r1_m1_w17", content: "milk", difficulty: 2, points: 1, keyWords: ["milk"] },
+          { id: "r1_m1_w18", content: "bread", difficulty: 2, points: 1, keyWords: ["bread"] },
+          { id: "r1_m1_w19", content: "window", difficulty: 2, points: 1, keyWords: ["window"] },
+          { id: "r1_m1_w20", content: "garden", difficulty: 2, points: 1, keyWords: ["garden"] },
+          { id: "r1_m1_w21", content: "smile", difficulty: 3, points: 1, keyWords: ["smile"] },
+          { id: "r1_m1_w22", content: "school", difficulty: 3, points: 1, keyWords: ["school"] },
+          { id: "r1_m1_w23", content: "mother", difficulty: 3, points: 1, keyWords: ["mother"] },
+          { id: "r1_m1_w24", content: "father", difficulty: 3, points: 1, keyWords: ["father"] },
+          { id: "r1_m1_w25", content: "brother", difficulty: 3, points: 1, keyWords: ["brother"] },
+          { id: "r1_m1_w26", content: "sister", difficulty: 3, points: 1, keyWords: ["sister"] },
+          { id: "r1_m1_w27", content: "table", difficulty: 2, points: 1, keyWords: ["table"] },
+          { id: "r1_m1_w28", content: "chair", difficulty: 2, points: 1, keyWords: ["chair"] },
+          { id: "r1_m1_w29", content: "bed", difficulty: 2, points: 1, keyWords: ["bed"] },
+          { id: "r1_m1_w30", content: "park", difficulty: 2, points: 1, keyWords: ["park"] }
         ],
         sentences: [
           { id: "r1_m1_s1", content: "The cat sits in the sun.", difficulty: 1, points: 2, keyWords: ["cat", "sits", "sun"] },
@@ -77,7 +100,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m1_s7", content: "My friend is happy.", difficulty: 3, points: 2, keyWords: ["friend", "happy"] },
           { id: "r1_m1_s8", content: "I love my family.", difficulty: 3, points: 2, keyWords: ["love", "family"] },
           { id: "r1_m1_s9", content: "The sun is very hot.", difficulty: 3, points: 2, keyWords: ["sun", "very", "hot"] },
-          { id: "r1_m1_s10", content: "Children play in the park.", difficulty: 3, points: 2, keyWords: ["children", "play", "park"] }
+          { id: "r1_m1_s10", content: "Children play in the park.", difficulty: 3, points: 2, keyWords: ["children", "play", "park"] },
+          { id: "r1_m1_s11", content: "The dog barks loudly.", difficulty: 1, points: 2, keyWords: ["dog", "barks", "loudly"] },
+          { id: "r1_m1_s12", content: "The moon shines at night.", difficulty: 1, points: 2, keyWords: ["moon", "shines", "night"] },
+          { id: "r1_m1_s13", content: "I write with a pen.", difficulty: 1, points: 2, keyWords: ["write", "pen"] },
+          { id: "r1_m1_s14", content: "My car is red.", difficulty: 1, points: 2, keyWords: ["car", "red"] },
+          { id: "r1_m1_s15", content: "The tree is tall.", difficulty: 1, points: 2, keyWords: ["tree", "tall"] },
+          { id: "r1_m1_s16", content: "Please close the door.", difficulty: 2, points: 2, keyWords: ["close", "door"] },
+          { id: "r1_m1_s17", content: "I drink milk every day.", difficulty: 2, points: 2, keyWords: ["drink", "milk", "every", "day"] },
+          { id: "r1_m1_s18", content: "Bread is very fresh.", difficulty: 2, points: 2, keyWords: ["bread", "fresh"] },
+          { id: "r1_m1_s19", content: "Open the window please.", difficulty: 2, points: 2, keyWords: ["open", "window", "please"] },
+          { id: "r1_m1_s20", content: "The garden has many flowers.", difficulty: 2, points: 2, keyWords: ["garden", "flowers"] },
+          { id: "r1_m1_s21", content: "She has a big smile.", difficulty: 3, points: 2, keyWords: ["big", "smile"] },
+          { id: "r1_m1_s22", content: "We go to school together.", difficulty: 3, points: 2, keyWords: ["go", "school", "together"] },
+          { id: "r1_m1_s23", content: "My mother cooks dinner.", difficulty: 3, points: 2, keyWords: ["mother", "cooks", "dinner"] },
+          { id: "r1_m1_s24", content: "My father works hard.", difficulty: 3, points: 2, keyWords: ["father", "works", "hard"] },
+          { id: "r1_m1_s25", content: "My brother is young.", difficulty: 3, points: 2, keyWords: ["brother", "young"] },
+          { id: "r1_m1_s26", content: "My sister likes music.", difficulty: 3, points: 2, keyWords: ["sister", "likes", "music"] },
+          { id: "r1_m1_s27", content: "The table is brown.", difficulty: 2, points: 2, keyWords: ["table", "brown"] },
+          { id: "r1_m1_s28", content: "Sit on the chair.", difficulty: 2, points: 2, keyWords: ["sit", "chair"] },
+          { id: "r1_m1_s29", content: "The bed is soft.", difficulty: 2, points: 2, keyWords: ["bed", "soft"] },
+          { id: "r1_m1_s30", content: "Let's go to the park.", difficulty: 3, points: 2, keyWords: ["go", "park"] }
         ],
         paragraphs: [
           { id: "r1_m1_p1", content: "The cat sits in the sun. It is a warm day. The cat is happy.", difficulty: 1, points: 3, keyWords: ["cat", "sun", "warm", "day", "happy"] },
@@ -89,7 +132,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m1_p7", content: "Food tastes very good. We cook dinner at home. The whole family eats together.", difficulty: 3, points: 3, keyWords: ["food", "tastes", "cook", "dinner", "family", "eats"] },
           { id: "r1_m1_p8", content: "The sun shines bright today. Children play outside in the park. Everyone is having fun.", difficulty: 3, points: 3, keyWords: ["sun", "shines", "bright", "children", "play", "outside", "park", "fun"] },
           { id: "r1_m1_p9", content: "My cat likes to sleep. It finds a warm place in the house. The cat dreams about fish.", difficulty: 3, points: 3, keyWords: ["cat", "sleep", "warm", "place", "house", "dreams", "fish"] },
-          { id: "r1_m1_p10", content: "We love our family very much. We spend time together every day. Family is the most important thing.", difficulty: 3, points: 3, keyWords: ["love", "family", "spend", "time", "together", "important"] }
+          { id: "r1_m1_p10", content: "We love our family very much. We spend time together every day. Family is the most important thing.", difficulty: 3, points: 3, keyWords: ["love", "family", "spend", "time", "together", "important"] },
+          { id: "r1_m1_p11", content: "My dog is my best friend. He plays with me in the garden. Dogs are loyal animals.", difficulty: 1, points: 3, keyWords: ["dog", "friend", "plays", "garden", "loyal"] },
+          { id: "r1_m1_p12", content: "The moon comes out at night. It gives us light. The moon is beautiful.", difficulty: 1, points: 3, keyWords: ["moon", "night", "light", "beautiful"] },
+          { id: "r1_m1_p13", content: "I use a pen to write letters. Writing is important. I practice every day.", difficulty: 1, points: 3, keyWords: ["pen", "write", "letters", "important", "practice"] },
+          { id: "r1_m1_p14", content: "My car takes me to work. I drive carefully on the road. Cars help us travel far.", difficulty: 2, points: 3, keyWords: ["car", "work", "drive", "carefully", "road", "travel"] },
+          { id: "r1_m1_p15", content: "There is a big tree in our yard. Birds make nests in it. Trees give us shade.", difficulty: 2, points: 3, keyWords: ["tree", "yard", "birds", "nests", "shade"] },
+          { id: "r1_m1_p16", content: "I open the door when someone knocks. Doors keep our home safe. Always lock the door at night.", difficulty: 2, points: 3, keyWords: ["door", "knocks", "home", "safe", "lock", "night"] },
+          { id: "r1_m1_p17", content: "Milk is white and healthy. Children drink milk to grow strong. We buy fresh milk from the store.", difficulty: 2, points: 3, keyWords: ["milk", "white", "healthy", "children", "grow", "strong", "store"] },
+          { id: "r1_m1_p18", content: "Bread is a basic food. We eat it for breakfast. Fresh bread smells wonderful.", difficulty: 2, points: 3, keyWords: ["bread", "basic", "food", "breakfast", "fresh", "smells"] },
+          { id: "r1_m1_p19", content: "The window lets in fresh air. I can see outside through the window. Clean windows make the house bright.", difficulty: 3, points: 3, keyWords: ["window", "fresh", "air", "see", "outside", "clean", "bright"] },
+          { id: "r1_m1_p20", content: "Our garden has many beautiful flowers. We water them every morning. Gardens make our home pretty.", difficulty: 3, points: 3, keyWords: ["garden", "flowers", "water", "morning", "home", "pretty"] },
+          { id: "r1_m1_p21", content: "A smile makes everyone happy. When you smile, others smile too. Smiling is free and easy.", difficulty: 3, points: 3, keyWords: ["smile", "happy", "others", "free", "easy"] },
+          { id: "r1_m1_p22", content: "School is where we learn new things. Teachers help students every day. Education is very important.", difficulty: 3, points: 3, keyWords: ["school", "learn", "teachers", "students", "education", "important"] },
+          { id: "r1_m1_p23", content: "My mother is kind and caring. She takes care of the family. I love my mother very much.", difficulty: 3, points: 3, keyWords: ["mother", "kind", "caring", "takes", "care", "family", "love"] },
+          { id: "r1_m1_p24", content: "My father goes to work every morning. He works hard for our family. Fathers are strong and helpful.", difficulty: 3, points: 3, keyWords: ["father", "work", "morning", "hard", "family", "strong"] },
+          { id: "r1_m1_p25", content: "My brother and I play games together. He is younger than me. Brothers are special friends.", difficulty: 3, points: 3, keyWords: ["brother", "play", "games", "younger", "special", "friends"] },
+          { id: "r1_m1_p26", content: "My sister likes to sing songs. She has a beautiful voice. Sisters bring joy to the family.", difficulty: 3, points: 3, keyWords: ["sister", "sing", "songs", "beautiful", "voice", "joy"] },
+          { id: "r1_m1_p27", content: "We eat meals at the table. The table brings the family together. Sharing meals is important.", difficulty: 2, points: 3, keyWords: ["eat", "meals", "table", "family", "together", "sharing"] },
+          { id: "r1_m1_p28", content: "I sit on a comfortable chair. Good chairs support our back. Every home needs chairs.", difficulty: 2, points: 3, keyWords: ["sit", "comfortable", "chair", "support", "back", "home"] },
+          { id: "r1_m1_p29", content: "I sleep in my bed at night. A good bed helps us rest. Sleep is important for health.", difficulty: 2, points: 3, keyWords: ["sleep", "bed", "night", "rest", "important", "health"] },
+          { id: "r1_m1_p30", content: "The park is a fun place. Children run and play there. Parks are good for everyone.", difficulty: 3, points: 3, keyWords: ["park", "fun", "place", "children", "run", "play", "good"] }
         ]
       },
       macroLevel2: {
@@ -106,7 +169,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m2_w7", content: "store", difficulty: 3, points: 1, keyWords: ["store"] },
           { id: "r1_m2_w8", content: "doctor", difficulty: 3, points: 1, keyWords: ["doctor"] },
           { id: "r1_m2_w9", content: "school", difficulty: 3, points: 1, keyWords: ["school"] },
-          { id: "r1_m2_w10", content: "work", difficulty: 3, points: 1, keyWords: ["work"] }
+          { id: "r1_m2_w10", content: "work", difficulty: 3, points: 1, keyWords: ["work"] },
+          { id: "r1_m2_w11", content: "goodbye", difficulty: 1, points: 1, keyWords: ["goodbye"] },
+          { id: "r1_m2_w12", content: "yes", difficulty: 1, points: 1, keyWords: ["yes"] },
+          { id: "r1_m2_w13", content: "no", difficulty: 1, points: 1, keyWords: ["no"] },
+          { id: "r1_m2_w14", content: "welcome", difficulty: 1, points: 1, keyWords: ["welcome"] },
+          { id: "r1_m2_w15", content: "excuse", difficulty: 2, points: 1, keyWords: ["excuse"] },
+          { id: "r1_m2_w16", content: "pardon", difficulty: 2, points: 1, keyWords: ["pardon"] },
+          { id: "r1_m2_w17", content: "morning", difficulty: 2, points: 1, keyWords: ["morning"] },
+          { id: "r1_m2_w18", content: "evening", difficulty: 2, points: 1, keyWords: ["evening"] },
+          { id: "r1_m2_w19", content: "night", difficulty: 2, points: 1, keyWords: ["night"] },
+          { id: "r1_m2_w20", content: "price", difficulty: 2, points: 1, keyWords: ["price"] },
+          { id: "r1_m2_w21", content: "question", difficulty: 3, points: 1, keyWords: ["question"] },
+          { id: "r1_m2_w22", content: "answer", difficulty: 3, points: 1, keyWords: ["answer"] },
+          { id: "r1_m2_w23", content: "understand", difficulty: 3, points: 1, keyWords: ["understand"] },
+          { id: "r1_m2_w24", content: "repeat", difficulty: 3, points: 1, keyWords: ["repeat"] },
+          { id: "r1_m2_w25", content: "hospital", difficulty: 3, points: 1, keyWords: ["hospital"] },
+          { id: "r1_m2_w26", content: "police", difficulty: 3, points: 1, keyWords: ["police"] },
+          { id: "r1_m2_w27", content: "restaurant", difficulty: 3, points: 1, keyWords: ["restaurant"] },
+          { id: "r1_m2_w28", content: "bathroom", difficulty: 3, points: 1, keyWords: ["bathroom"] },
+          { id: "r1_m2_w29", content: "pharmacy", difficulty: 3, points: 1, keyWords: ["pharmacy"] },
+          { id: "r1_m2_w30", content: "library", difficulty: 3, points: 1, keyWords: ["library"] }
         ],
         sentences: [
           { id: "r1_m2_s1", content: "Hello, how are you?", difficulty: 1, points: 2, keyWords: ["hello", "how", "are", "you"] },
@@ -118,7 +201,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m2_s7", content: "I go to the doctor.", difficulty: 3, points: 2, keyWords: ["go", "doctor"] },
           { id: "r1_m2_s8", content: "Children go to school.", difficulty: 3, points: 2, keyWords: ["children", "school"] },
           { id: "r1_m2_s9", content: "My father goes to work.", difficulty: 3, points: 2, keyWords: ["father", "goes", "work"] },
-          { id: "r1_m2_s10", content: "Can you help me please?", difficulty: 3, points: 2, keyWords: ["can", "help", "please"] }
+          { id: "r1_m2_s10", content: "Can you help me please?", difficulty: 3, points: 2, keyWords: ["can", "help", "please"] },
+          { id: "r1_m2_s11", content: "Goodbye, see you later.", difficulty: 1, points: 2, keyWords: ["goodbye", "see", "later"] },
+          { id: "r1_m2_s12", content: "Yes, I agree.", difficulty: 1, points: 2, keyWords: ["yes", "agree"] },
+          { id: "r1_m2_s13", content: "No, thank you.", difficulty: 1, points: 2, keyWords: ["no", "thank", "you"] },
+          { id: "r1_m2_s14", content: "You are welcome.", difficulty: 1, points: 2, keyWords: ["you", "welcome"] },
+          { id: "r1_m2_s15", content: "Excuse me please.", difficulty: 2, points: 2, keyWords: ["excuse", "me", "please"] },
+          { id: "r1_m2_s16", content: "I beg your pardon.", difficulty: 2, points: 2, keyWords: ["beg", "pardon"] },
+          { id: "r1_m2_s17", content: "Good morning everyone.", difficulty: 2, points: 2, keyWords: ["good", "morning", "everyone"] },
+          { id: "r1_m2_s18", content: "Good evening to you.", difficulty: 2, points: 2, keyWords: ["good", "evening"] },
+          { id: "r1_m2_s19", content: "Have a good night.", difficulty: 2, points: 2, keyWords: ["have", "good", "night"] },
+          { id: "r1_m2_s20", content: "What is the price?", difficulty: 2, points: 2, keyWords: ["what", "price"] },
+          { id: "r1_m2_s21", content: "I have a question.", difficulty: 3, points: 2, keyWords: ["have", "question"] },
+          { id: "r1_m2_s22", content: "Can you answer this?", difficulty: 3, points: 2, keyWords: ["can", "answer", "this"] },
+          { id: "r1_m2_s23", content: "I don't understand.", difficulty: 3, points: 2, keyWords: ["don't", "understand"] },
+          { id: "r1_m2_s24", content: "Please repeat that.", difficulty: 3, points: 2, keyWords: ["please", "repeat", "that"] },
+          { id: "r1_m2_s25", content: "Where is the hospital?", difficulty: 3, points: 2, keyWords: ["where", "hospital"] },
+          { id: "r1_m2_s26", content: "Call the police please.", difficulty: 3, points: 2, keyWords: ["call", "police", "please"] },
+          { id: "r1_m2_s27", content: "Let's eat at the restaurant.", difficulty: 3, points: 2, keyWords: ["eat", "restaurant"] },
+          { id: "r1_m2_s28", content: "I need the bathroom.", difficulty: 3, points: 2, keyWords: ["need", "bathroom"] },
+          { id: "r1_m2_s29", content: "The pharmacy is closed.", difficulty: 3, points: 2, keyWords: ["pharmacy", "closed"] },
+          { id: "r1_m2_s30", content: "I study at the library.", difficulty: 3, points: 2, keyWords: ["study", "library"] }
         ],
         paragraphs: [
           { id: "r1_m2_p1", content: "Hello, my name is John. Nice to meet you. How are you today?", difficulty: 1, points: 3, keyWords: ["hello", "name", "nice", "meet", "today"] },
@@ -130,7 +233,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m2_p7", content: "I go to work every morning. I like my job very much. My boss is a good person.", difficulty: 3, points: 3, keyWords: ["work", "morning", "like", "job", "boss", "good", "person"] },
           { id: "r1_m2_p8", content: "The store has many good things. You can buy food and clothes there. The workers are always helpful.", difficulty: 3, points: 3, keyWords: ["store", "good", "things", "buy", "food", "clothes", "workers", "helpful"] },
           { id: "r1_m2_p9", content: "When I meet new people, I always say hello. It is polite to be friendly. Most people like to talk.", difficulty: 3, points: 3, keyWords: ["meet", "new", "people", "hello", "polite", "friendly", "like", "talk"] },
-          { id: "r1_m2_p10", content: "Thank you for all your help. You are a very kind person. I will remember your kindness always.", difficulty: 3, points: 3, keyWords: ["thank", "help", "kind", "person", "remember", "kindness", "always"] }
+          { id: "r1_m2_p10", content: "Thank you for all your help. You are a very kind person. I will remember your kindness always.", difficulty: 3, points: 3, keyWords: ["thank", "help", "kind", "person", "remember", "kindness", "always"] },
+          { id: "r1_m2_p11", content: "When I leave, I always say goodbye. It is polite to say goodbye. People appreciate good manners.", difficulty: 1, points: 3, keyWords: ["leave", "goodbye", "polite", "people", "manners"] },
+          { id: "r1_m2_p12", content: "If someone asks me a question, I say yes or no. It is important to give clear answers. Communication works better this way.", difficulty: 1, points: 3, keyWords: ["question", "yes", "no", "clear", "answers", "communication"] },
+          { id: "r1_m2_p13", content: "When someone thanks me, I say you are welcome. This shows respect and kindness. Being polite makes people happy.", difficulty: 1, points: 3, keyWords: ["thanks", "welcome", "respect", "kindness", "polite", "happy"] },
+          { id: "r1_m2_p14", content: "Sometimes I need to get someone's attention. I say excuse me first. Then I ask my question politely.", difficulty: 2, points: 3, keyWords: ["need", "attention", "excuse", "me", "ask", "question", "politely"] },
+          { id: "r1_m2_p15", content: "Every morning I greet people. I say good morning with a smile. Starting the day with kindness is important.", difficulty: 2, points: 3, keyWords: ["morning", "greet", "people", "smile", "starting", "day", "kindness"] },
+          { id: "r1_m2_p16", content: "In the evening, I say good evening. At night, I wish people good night. Time of day matters in greetings.", difficulty: 2, points: 3, keyWords: ["evening", "night", "wish", "time", "day", "greetings"] },
+          { id: "r1_m2_p17", content: "Before I buy something, I ask about the price. Knowing the cost is important. I want to spend my money wisely.", difficulty: 2, points: 3, keyWords: ["buy", "price", "cost", "important", "spend", "money", "wisely"] },
+          { id: "r1_m2_p18", content: "When I don't understand something, I ask questions. There is no shame in asking. Learning requires asking for help sometimes.", difficulty: 3, points: 3, keyWords: ["don't", "understand", "ask", "questions", "shame", "learning", "help"] },
+          { id: "r1_m2_p19", content: "If I can't hear clearly, I ask people to repeat. It is better to ask than to guess. Clear communication prevents mistakes.", difficulty: 3, points: 3, keyWords: ["can't", "hear", "repeat", "better", "guess", "communication", "prevents", "mistakes"] },
+          { id: "r1_m2_p20", content: "I know where important places are located. The hospital helps sick people. The police keep us safe. These places are very important.", difficulty: 3, points: 3, keyWords: ["know", "important", "places", "hospital", "sick", "police", "safe"] },
+          { id: "r1_m2_p21", content: "My favorite restaurant has delicious food. The workers are always friendly. I enjoy eating there with my family.", difficulty: 3, points: 3, keyWords: ["favorite", "restaurant", "delicious", "workers", "friendly", "enjoy", "eating", "family"] },
+          { id: "r1_m2_p22", content: "Public bathrooms are useful when traveling. It is important to know where they are. Most stores have public bathrooms available.", difficulty: 3, points: 3, keyWords: ["bathrooms", "useful", "traveling", "important", "know", "stores", "available"] },
+          { id: "r1_m2_p23", content: "When I need medicine, I go to the pharmacy. The pharmacist is very helpful. They answer all my questions about medicine.", difficulty: 3, points: 3, keyWords: ["medicine", "pharmacy", "pharmacist", "helpful", "answer", "questions"] },
+          { id: "r1_m2_p24", content: "The library is a quiet place to study. There are many books to read. I visit the library every week to learn new things.", difficulty: 3, points: 3, keyWords: ["library", "quiet", "place", "study", "books", "read", "visit", "learn"] },
+          { id: "r1_m2_p25", content: "Good manners are important in every culture. Saying please and thank you shows respect. People appreciate when we are polite.", difficulty: 3, points: 3, keyWords: ["manners", "important", "culture", "please", "thank", "respect", "appreciate", "polite"] },
+          { id: "r1_m2_p26", content: "At school, I learned to raise my hand before speaking. This shows respect to the teacher. Waiting your turn is part of good manners.", difficulty: 3, points: 3, keyWords: ["school", "learned", "raise", "hand", "speaking", "respect", "teacher", "waiting", "turn", "manners"] },
+          { id: "r1_m2_p27", content: "When I make a mistake, I apologize. Saying sorry is important. It shows that I care about other people's feelings.", difficulty: 2, points: 3, keyWords: ["mistake", "apologize", "sorry", "important", "care", "feelings"] },
+          { id: "r1_m2_p28", content: "During meals, we use good table manners. We say please when asking for food. We thank the cook for the delicious meal.", difficulty: 2, points: 3, keyWords: ["meals", "table", "manners", "please", "asking", "food", "thank", "cook", "delicious"] },
+          { id: "r1_m2_p29", content: "My teacher taught us to be respectful. We listen when others are talking. We wait for our turn to speak. This makes everyone feel valued.", difficulty: 3, points: 3, keyWords: ["teacher", "taught", "respectful", "listen", "talking", "wait", "turn", "speak", "valued"] },
+          { id: "r1_m2_p30", content: "Being kind to others makes the world better. Small acts of kindness matter. A smile or a kind word can change someone's day.", difficulty: 3, points: 3, keyWords: ["kind", "others", "world", "better", "acts", "kindness", "matter", "smile", "word", "change", "day"] }
         ]
       },
       macroLevel3: {
@@ -147,7 +270,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m3_w7", content: "information", difficulty: 3, points: 1, keyWords: ["information"] },
           { id: "r1_m3_w8", content: "directions", difficulty: 3, points: 1, keyWords: ["directions"] },
           { id: "r1_m3_w9", content: "emergency", difficulty: 3, points: 1, keyWords: ["emergency"] },
-          { id: "r1_m3_w10", content: "transportation", difficulty: 3, points: 1, keyWords: ["transportation"] }
+          { id: "r1_m3_w10", content: "transportation", difficulty: 3, points: 1, keyWords: ["transportation"] },
+          { id: "r1_m3_w11", content: "date", difficulty: 1, points: 1, keyWords: ["date"] },
+          { id: "r1_m3_w12", content: "schedule", difficulty: 1, points: 1, keyWords: ["schedule"] },
+          { id: "r1_m3_w13", content: "map", difficulty: 1, points: 1, keyWords: ["map"] },
+          { id: "r1_m3_w14", content: "ticket", difficulty: 1, points: 1, keyWords: ["ticket"] },
+          { id: "r1_m3_w15", content: "meeting", difficulty: 2, points: 1, keyWords: ["meeting"] },
+          { id: "r1_m3_w16", content: "location", difficulty: 2, points: 1, keyWords: ["location"] },
+          { id: "r1_m3_w17", content: "message", difficulty: 2, points: 1, keyWords: ["message"] },
+          { id: "r1_m3_w18", content: "email", difficulty: 2, points: 1, keyWords: ["email"] },
+          { id: "r1_m3_w19", content: "calendar", difficulty: 2, points: 1, keyWords: ["calendar"] },
+          { id: "r1_m3_w20", content: "reminder", difficulty: 2, points: 1, keyWords: ["reminder"] },
+          { id: "r1_m3_w21", content: "document", difficulty: 3, points: 1, keyWords: ["document"] },
+          { id: "r1_m3_w22", content: "application", difficulty: 3, points: 1, keyWords: ["application"] },
+          { id: "r1_m3_w23", content: "confirmation", difficulty: 3, points: 1, keyWords: ["confirmation"] },
+          { id: "r1_m3_w24", content: "registration", difficulty: 3, points: 1, keyWords: ["registration"] },
+          { id: "r1_m3_w25", content: "identification", difficulty: 3, points: 1, keyWords: ["identification"] },
+          { id: "r1_m3_w26", content: "reservation", difficulty: 3, points: 1, keyWords: ["reservation"] },
+          { id: "r1_m3_w27", content: "notification", difficulty: 3, points: 1, keyWords: ["notification"] },
+          { id: "r1_m3_w28", content: "instructions", difficulty: 3, points: 1, keyWords: ["instructions"] },
+          { id: "r1_m3_w29", content: "procedure", difficulty: 3, points: 1, keyWords: ["procedure"] },
+          { id: "r1_m3_w30", content: "requirement", difficulty: 3, points: 1, keyWords: ["requirement"] }
         ],
         sentences: [
           { id: "r1_m3_s1", content: "What time is it?", difficulty: 1, points: 2, keyWords: ["what", "time"] },
@@ -159,7 +302,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m3_s7", content: "I need more information.", difficulty: 3, points: 2, keyWords: ["need", "information"] },
           { id: "r1_m3_s8", content: "Can you give me directions?", difficulty: 3, points: 2, keyWords: ["give", "directions"] },
           { id: "r1_m3_s9", content: "This is an emergency.", difficulty: 3, points: 2, keyWords: ["emergency"] },
-          { id: "r1_m3_s10", content: "I need transportation to the hospital.", difficulty: 3, points: 2, keyWords: ["need", "transportation", "hospital"] }
+          { id: "r1_m3_s10", content: "I need transportation to the hospital.", difficulty: 3, points: 2, keyWords: ["need", "transportation", "hospital"] },
+          { id: "r1_m3_s11", content: "What is today's date?", difficulty: 1, points: 2, keyWords: ["what", "today", "date"] },
+          { id: "r1_m3_s12", content: "Check your schedule please.", difficulty: 1, points: 2, keyWords: ["check", "schedule", "please"] },
+          { id: "r1_m3_s13", content: "I have a map here.", difficulty: 1, points: 2, keyWords: ["have", "map", "here"] },
+          { id: "r1_m3_s14", content: "Where can I buy tickets?", difficulty: 1, points: 2, keyWords: ["where", "buy", "tickets"] },
+          { id: "r1_m3_s15", content: "The meeting starts at noon.", difficulty: 2, points: 2, keyWords: ["meeting", "starts", "noon"] },
+          { id: "r1_m3_s16", content: "Share your location with me.", difficulty: 2, points: 2, keyWords: ["share", "location", "me"] },
+          { id: "r1_m3_s17", content: "Did you get my message?", difficulty: 2, points: 2, keyWords: ["did", "get", "message"] },
+          { id: "r1_m3_s18", content: "Send me an email.", difficulty: 2, points: 2, keyWords: ["send", "email"] },
+          { id: "r1_m3_s19", content: "Mark it on your calendar.", difficulty: 2, points: 2, keyWords: ["mark", "calendar"] },
+          { id: "r1_m3_s20", content: "Set a reminder for tomorrow.", difficulty: 2, points: 2, keyWords: ["set", "reminder", "tomorrow"] },
+          { id: "r1_m3_s21", content: "Please sign this document.", difficulty: 3, points: 2, keyWords: ["please", "sign", "document"] },
+          { id: "r1_m3_s22", content: "Fill out the application form.", difficulty: 3, points: 2, keyWords: ["fill", "application", "form"] },
+          { id: "r1_m3_s23", content: "I need a confirmation number.", difficulty: 3, points: 2, keyWords: ["need", "confirmation", "number"] },
+          { id: "r1_m3_s24", content: "Complete the registration process.", difficulty: 3, points: 2, keyWords: ["complete", "registration", "process"] },
+          { id: "r1_m3_s25", content: "Show your identification please.", difficulty: 3, points: 2, keyWords: ["show", "identification", "please"] },
+          { id: "r1_m3_s26", content: "I made a reservation online.", difficulty: 3, points: 2, keyWords: ["made", "reservation", "online"] },
+          { id: "r1_m3_s27", content: "You will receive a notification.", difficulty: 3, points: 2, keyWords: ["receive", "notification"] },
+          { id: "r1_m3_s28", content: "Follow the instructions carefully.", difficulty: 3, points: 2, keyWords: ["follow", "instructions", "carefully"] },
+          { id: "r1_m3_s29", content: "Understand the procedure first.", difficulty: 3, points: 2, keyWords: ["understand", "procedure", "first"] },
+          { id: "r1_m3_s30", content: "Meet all the requirements.", difficulty: 3, points: 2, keyWords: ["meet", "requirements"] }
         ],
         paragraphs: [
           { id: "r1_m3_p1", content: "I always check the time before I leave. Time is very important for appointments. I do not want to be late.", difficulty: 1, points: 3, keyWords: ["check", "time", "leave", "important", "appointments", "late"] },
@@ -171,7 +334,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m3_p7", content: "I am lost and need directions. The GPS in my car is broken. A kind person helped me find the right road.", difficulty: 3, points: 3, keyWords: ["lost", "directions", "GPS", "car", "broken", "kind", "person", "helped", "find", "right", "road"] },
           { id: "r1_m3_p8", content: "There was an emergency at work today. Everyone stayed calm and followed the safety rules. Help arrived very quickly.", difficulty: 3, points: 3, keyWords: ["emergency", "work", "everyone", "stayed", "calm", "followed", "safety", "rules", "help", "arrived", "quickly"] },
           { id: "r1_m3_p9", content: "Public transportation is very useful in the city. Buses and trains run every day. They help people get to work and school.", difficulty: 3, points: 3, keyWords: ["public", "transportation", "useful", "city", "buses", "trains", "run", "every", "day", "help", "people", "get", "work", "school"] },
-          { id: "r1_m3_p10", content: "I keep important phone numbers in my wallet. This includes my doctor, my children's school, and emergency contacts. It is good to be prepared.", difficulty: 3, points: 3, keyWords: ["keep", "important", "phone", "numbers", "wallet", "includes", "doctor", "children's", "school", "emergency", "contacts", "good", "prepared"] }
+          { id: "r1_m3_p10", content: "I keep important phone numbers in my wallet. This includes my doctor, my children's school, and emergency contacts. It is good to be prepared.", difficulty: 3, points: 3, keyWords: ["keep", "important", "phone", "numbers", "wallet", "includes", "doctor", "children's", "school", "emergency", "contacts", "good", "prepared"] },
+          { id: "r1_m3_p11", content: "Today's date is very important. I wrote it in my calendar. I don't want to forget my appointment.", difficulty: 1, points: 3, keyWords: ["today", "date", "important", "wrote", "calendar", "don't", "forget", "appointment"] },
+          { id: "r1_m3_p12", content: "My work schedule changes every week. I need to check it every Monday morning. This helps me plan my day.", difficulty: 1, points: 3, keyWords: ["work", "schedule", "changes", "week", "check", "Monday", "morning", "helps", "plan", "day"] },
+          { id: "r1_m3_p13", content: "I always carry a map when I travel. Maps help me find new places. They show me the best route to take.", difficulty: 1, points: 3, keyWords: ["carry", "map", "travel", "maps", "help", "find", "new", "places", "show", "best", "route"] },
+          { id: "r1_m3_p14", content: "I bought my train ticket online. It was easy and fast. The ticket is on my phone now.", difficulty: 1, points: 3, keyWords: ["bought", "train", "ticket", "online", "easy", "fast", "phone", "now"] },
+          { id: "r1_m3_p15", content: "We have a team meeting every Friday. Everyone must attend the meeting. We discuss our work plans together.", difficulty: 2, points: 3, keyWords: ["team", "meeting", "Friday", "everyone", "attend", "discuss", "work", "plans", "together"] },
+          { id: "r1_m3_p16", content: "The GPS shows my exact location. This is helpful when I am lost. I can share my location with friends.", difficulty: 2, points: 3, keyWords: ["GPS", "shows", "exact", "location", "helpful", "lost", "share", "friends"] },
+          { id: "r1_m3_p17", content: "I sent you a text message this morning. Did you receive it? Please reply when you can.", difficulty: 2, points: 3, keyWords: ["sent", "text", "message", "morning", "receive", "reply", "can"] },
+          { id: "r1_m3_p18", content: "Email is a fast way to communicate. I check my email every day. Important messages come through email.", difficulty: 2, points: 3, keyWords: ["email", "fast", "way", "communicate", "check", "every", "day", "important", "messages"] },
+          { id: "r1_m3_p19", content: "I use a calendar app on my phone. It reminds me of important dates. I never miss appointments anymore.", difficulty: 2, points: 3, keyWords: ["use", "calendar", "app", "phone", "reminds", "important", "dates", "never", "miss", "appointments"] },
+          { id: "r1_m3_p20", content: "Set a reminder for tomorrow's meeting. The reminder will alert you one hour early. This gives you time to prepare.", difficulty: 2, points: 3, keyWords: ["set", "reminder", "tomorrow", "meeting", "alert", "hour", "early", "gives", "time", "prepare"] },
+          { id: "r1_m3_p21", content: "Important documents must be signed by both parties. Read each document carefully before signing. Keep copies for your records.", difficulty: 3, points: 3, keyWords: ["important", "documents", "signed", "parties", "read", "carefully", "signing", "keep", "copies", "records"] },
+          { id: "r1_m3_p22", content: "The job application has many questions. Answer all questions honestly and completely. Submit the application before the deadline.", difficulty: 3, points: 3, keyWords: ["job", "application", "questions", "answer", "honestly", "completely", "submit", "deadline"] },
+          { id: "r1_m3_p23", content: "After booking online, you receive a confirmation email. The confirmation number is important. Save it for your reference.", difficulty: 3, points: 3, keyWords: ["booking", "online", "receive", "confirmation", "email", "number", "important", "save", "reference"] },
+          { id: "r1_m3_p24", content: "Registration for the program opens next week. Complete the registration form early. Spaces fill up quickly.", difficulty: 3, points: 3, keyWords: ["registration", "program", "opens", "week", "complete", "form", "early", "spaces", "fill", "quickly"] },
+          { id: "r1_m3_p25", content: "Always bring proper identification when needed. A driver's license or passport works well. Keep your ID in a safe place.", difficulty: 3, points: 3, keyWords: ["bring", "proper", "identification", "needed", "driver", "license", "passport", "works", "keep", "safe", "place"] },
+          { id: "r1_m3_p26", content: "I made a hotel reservation for next month. The reservation is under my name. I paid a deposit to hold the room.", difficulty: 3, points: 3, keyWords: ["made", "hotel", "reservation", "month", "under", "name", "paid", "deposit", "hold", "room"] },
+          { id: "r1_m3_p27", content: "You will receive a notification when your order ships. Check your email for tracking information. Delivery takes three to five days.", difficulty: 3, points: 3, keyWords: ["receive", "notification", "order", "ships", "check", "email", "tracking", "information", "delivery", "days"] },
+          { id: "r1_m3_p28", content: "Follow the instructions step by step. Don't skip any steps in the procedure. Each step is important for success.", difficulty: 3, points: 3, keyWords: ["follow", "instructions", "step", "don't", "skip", "procedure", "important", "success"] },
+          { id: "r1_m3_p29", content: "Before starting, understand the complete procedure. Ask questions if something is unclear. It's better to be sure than to make mistakes.", difficulty: 3, points: 3, keyWords: ["before", "starting", "understand", "complete", "procedure", "ask", "questions", "unclear", "better", "sure", "mistakes"] },
+          { id: "r1_m3_p30", content: "Check all requirements before applying. Make sure you meet every requirement. Missing requirements can delay the process.", difficulty: 3, points: 3, keyWords: ["check", "requirements", "applying", "make", "sure", "meet", "every", "missing", "delay", "process"] }
         ]
       },
       macroLevel4: {
@@ -188,7 +371,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m4_w7", content: "experience", difficulty: 3, points: 1, keyWords: ["experience"] },
           { id: "r1_m4_w8", content: "opportunity", difficulty: 3, points: 1, keyWords: ["opportunity"] },
           { id: "r1_m4_w9", content: "confidence", difficulty: 3, points: 1, keyWords: ["confidence"] },
-          { id: "r1_m4_w10", content: "responsibility", difficulty: 3, points: 1, keyWords: ["responsibility"] }
+          { id: "r1_m4_w10", content: "responsibility", difficulty: 3, points: 1, keyWords: ["responsibility"] },
+          { id: "r1_m4_w11", content: "choice", difficulty: 1, points: 1, keyWords: ["choice"] },
+          { id: "r1_m4_w12", content: "plan", difficulty: 1, points: 1, keyWords: ["plan"] },
+          { id: "r1_m4_w13", content: "goal", difficulty: 1, points: 1, keyWords: ["goal"] },
+          { id: "r1_m4_w14", content: "dream", difficulty: 1, points: 1, keyWords: ["dream"] },
+          { id: "r1_m4_w15", content: "change", difficulty: 2, points: 1, keyWords: ["change"] },
+          { id: "r1_m4_w16", content: "improve", difficulty: 2, points: 1, keyWords: ["improve"] },
+          { id: "r1_m4_w17", content: "succeed", difficulty: 2, points: 1, keyWords: ["succeed"] },
+          { id: "r1_m4_w18", content: "achieve", difficulty: 2, points: 1, keyWords: ["achieve"] },
+          { id: "r1_m4_w19", content: "challenge", difficulty: 2, points: 1, keyWords: ["challenge"] },
+          { id: "r1_m4_w20", content: "courage", difficulty: 2, points: 1, keyWords: ["courage"] },
+          { id: "r1_m4_w21", content: "determination", difficulty: 3, points: 1, keyWords: ["determination"] },
+          { id: "r1_m4_w22", content: "perseverance", difficulty: 3, points: 1, keyWords: ["perseverance"] },
+          { id: "r1_m4_w23", content: "independence", difficulty: 3, points: 1, keyWords: ["independence"] },
+          { id: "r1_m4_w24", content: "creativity", difficulty: 3, points: 1, keyWords: ["creativity"] },
+          { id: "r1_m4_w25", content: "enthusiasm", difficulty: 3, points: 1, keyWords: ["enthusiasm"] },
+          { id: "r1_m4_w26", content: "motivation", difficulty: 3, points: 1, keyWords: ["motivation"] },
+          { id: "r1_m4_w27", content: "commitment", difficulty: 3, points: 1, keyWords: ["commitment"] },
+          { id: "r1_m4_w28", content: "initiative", difficulty: 3, points: 1, keyWords: ["initiative"] },
+          { id: "r1_m4_w29", content: "perspective", difficulty: 3, points: 1, keyWords: ["perspective"] },
+          { id: "r1_m4_w30", content: "accomplishment", difficulty: 3, points: 1, keyWords: ["accomplishment"] }
         ],
         sentences: [
           { id: "r1_m4_s1", content: "What is your opinion?", difficulty: 1, points: 2, keyWords: ["what", "opinion"] },
@@ -200,7 +403,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m4_s7", content: "This is a great experience.", difficulty: 3, points: 2, keyWords: ["great", "experience"] },
           { id: "r1_m4_s8", content: "This is a wonderful opportunity.", difficulty: 3, points: 2, keyWords: ["wonderful", "opportunity"] },
           { id: "r1_m4_s9", content: "I have confidence in myself.", difficulty: 3, points: 2, keyWords: ["have", "confidence", "myself"] },
-          { id: "r1_m4_s10", content: "This is my responsibility.", difficulty: 3, points: 2, keyWords: ["responsibility"] }
+          { id: "r1_m4_s10", content: "This is my responsibility.", difficulty: 3, points: 2, keyWords: ["responsibility"] },
+          { id: "r1_m4_s11", content: "I made the right choice.", difficulty: 1, points: 2, keyWords: ["made", "right", "choice"] },
+          { id: "r1_m4_s12", content: "We need a better plan.", difficulty: 1, points: 2, keyWords: ["need", "better", "plan"] },
+          { id: "r1_m4_s13", content: "My goal is to learn.", difficulty: 1, points: 2, keyWords: ["goal", "learn"] },
+          { id: "r1_m4_s14", content: "I have big dreams.", difficulty: 1, points: 2, keyWords: ["have", "big", "dreams"] },
+          { id: "r1_m4_s15", content: "I want to change my life.", difficulty: 2, points: 2, keyWords: ["want", "change", "life"] },
+          { id: "r1_m4_s16", content: "I can improve every day.", difficulty: 2, points: 2, keyWords: ["can", "improve", "every", "day"] },
+          { id: "r1_m4_s17", content: "I will succeed eventually.", difficulty: 2, points: 2, keyWords: ["will", "succeed", "eventually"] },
+          { id: "r1_m4_s18", content: "I can achieve my goals.", difficulty: 2, points: 2, keyWords: ["can", "achieve", "goals"] },
+          { id: "r1_m4_s19", content: "This is a big challenge.", difficulty: 2, points: 2, keyWords: ["big", "challenge"] },
+          { id: "r1_m4_s20", content: "I have the courage to try.", difficulty: 2, points: 2, keyWords: ["have", "courage", "try"] },
+          { id: "r1_m4_s21", content: "I have strong determination.", difficulty: 3, points: 2, keyWords: ["have", "strong", "determination"] },
+          { id: "r1_m4_s22", content: "Success requires perseverance.", difficulty: 3, points: 2, keyWords: ["success", "requires", "perseverance"] },
+          { id: "r1_m4_s23", content: "I value my independence.", difficulty: 3, points: 2, keyWords: ["value", "independence"] },
+          { id: "r1_m4_s24", content: "Creativity helps me solve problems.", difficulty: 3, points: 2, keyWords: ["creativity", "helps", "solve", "problems"] },
+          { id: "r1_m4_s25", content: "I feel enthusiasm for learning.", difficulty: 3, points: 2, keyWords: ["feel", "enthusiasm", "learning"] },
+          { id: "r1_m4_s26", content: "Motivation keeps me going.", difficulty: 3, points: 2, keyWords: ["motivation", "keeps", "going"] },
+          { id: "r1_m4_s27", content: "I show commitment to my work.", difficulty: 3, points: 2, keyWords: ["show", "commitment", "work"] },
+          { id: "r1_m4_s28", content: "Take initiative when possible.", difficulty: 3, points: 2, keyWords: ["take", "initiative", "possible"] },
+          { id: "r1_m4_s29", content: "Different perspectives are valuable.", difficulty: 3, points: 2, keyWords: ["different", "perspectives", "valuable"] },
+          { id: "r1_m4_s30", content: "Every accomplishment brings joy.", difficulty: 3, points: 2, keyWords: ["every", "accomplishment", "brings", "joy"] }
         ],
         paragraphs: [
           { id: "r1_m4_p1", content: "Everyone has different opinions about things. I respect other people's ideas. It is good to listen before I speak.", difficulty: 1, points: 3, keyWords: ["everyone", "different", "opinions", "things", "respect", "people's", "ideas", "good", "listen", "speak"] },
@@ -212,7 +435,27 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r1_m4_p7", content: "Building confidence takes time and practice. I believe in my abilities more each day. Confidence helps me try new things without fear.", difficulty: 3, points: 3, keyWords: ["building", "confidence", "takes", "time", "practice", "believe", "abilities", "more", "each", "day", "helps", "try", "new", "things", "without", "fear"] },
           { id: "r1_m4_p8", content: "I take responsibility for my actions and words. When I make mistakes, I admit them honestly. Taking responsibility shows that I am mature.", difficulty: 3, points: 3, keyWords: ["take", "responsibility", "actions", "words", "make", "mistakes", "admit", "honestly", "taking", "shows", "mature"] },
           { id: "r1_m4_p9", content: "My ideas are important and valuable. I share them with others when appropriate. Good communication helps my ideas become reality.", difficulty: 3, points: 3, keyWords: ["ideas", "important", "valuable", "share", "others", "appropriate", "good", "communication", "helps", "become", "reality"] },
-          { id: "r1_m4_p10", content: "I express my feelings clearly and respectfully. This helps others understand me better. Open communication builds stronger relationships with people.", difficulty: 3, points: 3, keyWords: ["express", "feelings", "clearly", "respectfully", "helps", "others", "understand", "better", "open", "communication", "builds", "stronger", "relationships", "people"] }
+          { id: "r1_m4_p10", content: "I express my feelings clearly and respectfully. This helps others understand me better. Open communication builds stronger relationships with people.", difficulty: 3, points: 3, keyWords: ["express", "feelings", "clearly", "respectfully", "helps", "others", "understand", "better", "open", "communication", "builds", "stronger", "relationships", "people"] },
+          { id: "r1_m4_p11", content: "Every choice I make shapes my future. I think about the consequences before deciding. Smart choices lead to good outcomes.", difficulty: 1, points: 3, keyWords: ["every", "choice", "make", "shapes", "future", "think", "consequences", "deciding", "smart", "choices", "lead", "outcomes"] },
+          { id: "r1_m4_p12", content: "I always make a plan before starting something big. Planning helps me stay organized. A good plan increases my chances of success.", difficulty: 1, points: 3, keyWords: ["always", "make", "plan", "starting", "big", "planning", "helps", "stay", "organized", "good", "increases", "chances", "success"] },
+          { id: "r1_m4_p13", content: "Setting goals gives me direction in life. I write down my goals and review them often. Clear goals help me focus my energy.", difficulty: 1, points: 3, keyWords: ["setting", "goals", "gives", "direction", "life", "write", "down", "review", "often", "clear", "help", "focus", "energy"] },
+          { id: "r1_m4_p14", content: "I have dreams about my future. Some dreams are small, some are big. Working toward my dreams makes life exciting.", difficulty: 1, points: 3, keyWords: ["have", "dreams", "future", "some", "small", "big", "working", "toward", "makes", "life", "exciting"] },
+          { id: "r1_m4_p15", content: "Change is not always easy, but it is necessary for growth. I embrace positive changes in my life. Each change brings new learning opportunities.", difficulty: 2, points: 3, keyWords: ["change", "not", "always", "easy", "necessary", "growth", "embrace", "positive", "life", "each", "brings", "learning", "opportunities"] },
+          { id: "r1_m4_p16", content: "I work hard to improve my skills. Every day I try to be a little better than yesterday. Constant improvement is my goal.", difficulty: 2, points: 3, keyWords: ["work", "hard", "improve", "skills", "every", "day", "try", "little", "better", "yesterday", "constant", "improvement", "goal"] },
+          { id: "r1_m4_p17", content: "Success means different things to different people. For me, success is being happy and helping others. I measure success by how much I have grown.", difficulty: 2, points: 3, keyWords: ["success", "means", "different", "things", "people", "being", "happy", "helping", "others", "measure", "how", "much", "grown"] },
+          { id: "r1_m4_p18", content: "I work hard to achieve my goals. Some goals take longer than others. With patience and effort, I can accomplish anything.", difficulty: 2, points: 3, keyWords: ["work", "hard", "achieve", "goals", "some", "take", "longer", "patience", "effort", "accomplish", "anything"] },
+          { id: "r1_m4_p19", content: "Life presents many challenges to overcome. I see challenges as opportunities to grow stronger. Each challenge teaches me valuable lessons.", difficulty: 2, points: 3, keyWords: ["life", "presents", "challenges", "overcome", "see", "opportunities", "grow", "stronger", "each", "teaches", "valuable", "lessons"] },
+          { id: "r1_m4_p20", content: "It takes courage to try new things. I feel scared sometimes, but I don't let fear stop me. Courage means acting despite being afraid.", difficulty: 2, points: 3, keyWords: ["takes", "courage", "try", "new", "things", "feel", "scared", "sometimes", "don't", "let", "fear", "stop", "means", "acting", "despite", "afraid"] },
+          { id: "r1_m4_p21", content: "Determination is the key to reaching goals. When things get difficult, I don't give up. My determination pushes me forward every day.", difficulty: 3, points: 3, keyWords: ["determination", "key", "reaching", "goals", "things", "difficult", "don't", "give", "up", "pushes", "forward", "every", "day"] },
+          { id: "r1_m4_p22", content: "Perseverance means continuing even when progress is slow. I keep working toward my goals despite obstacles. Perseverance separates success from failure.", difficulty: 3, points: 3, keyWords: ["perseverance", "means", "continuing", "progress", "slow", "keep", "working", "goals", "despite", "obstacles", "separates", "success", "failure"] },
+          { id: "r1_m4_p23", content: "Independence is important to me. I can make my own decisions and solve my own problems. Being independent gives me freedom and confidence.", difficulty: 3, points: 3, keyWords: ["independence", "important", "can", "make", "own", "decisions", "solve", "problems", "being", "independent", "gives", "freedom", "confidence"] },
+          { id: "r1_m4_p24", content: "Creativity helps me find new solutions to problems. I think outside the box and try different approaches. Creative thinking makes work more interesting.", difficulty: 3, points: 3, keyWords: ["creativity", "helps", "find", "new", "solutions", "problems", "think", "outside", "box", "try", "different", "approaches", "thinking", "makes", "work", "interesting"] },
+          { id: "r1_m4_p25", content: "I feel enthusiasm for everything I do. This energy helps me work harder and longer. Enthusiasm is contagious and inspires others around me.", difficulty: 3, points: 3, keyWords: ["feel", "enthusiasm", "everything", "energy", "helps", "work", "harder", "longer", "contagious", "inspires", "others", "around"] },
+          { id: "r1_m4_p26", content: "My motivation comes from my desire to succeed. I stay motivated by remembering my goals. Strong motivation helps me overcome any obstacle.", difficulty: 3, points: 3, keyWords: ["motivation", "comes", "desire", "succeed", "stay", "motivated", "remembering", "goals", "strong", "helps", "overcome", "obstacle"] },
+          { id: "r1_m4_p27", content: "I show commitment by following through on my promises. When I start something, I finish it. My commitment to excellence shows in my work.", difficulty: 3, points: 3, keyWords: ["show", "commitment", "following", "through", "promises", "start", "something", "finish", "excellence", "shows", "work"] },
+          { id: "r1_m4_p28", content: "Taking initiative means not waiting for others to tell me what to do. I see what needs to be done and I do it. Initiative is valued in every workplace.", difficulty: 3, points: 3, keyWords: ["taking", "initiative", "means", "not", "waiting", "others", "tell", "see", "needs", "done", "valued", "workplace"] },
+          { id: "r1_m4_p29", content: "Everyone has a different perspective based on their experiences. I try to understand other viewpoints before making judgments. Multiple perspectives lead to better decisions.", difficulty: 3, points: 3, keyWords: ["everyone", "different", "perspective", "based", "experiences", "try", "understand", "viewpoints", "making", "judgments", "multiple", "perspectives", "lead", "better", "decisions"] },
+          { id: "r1_m4_p30", content: "Every accomplishment, big or small, deserves recognition. I celebrate my achievements and those of others. Acknowledging accomplishments builds confidence and motivation.", difficulty: 3, points: 3, keyWords: ["every", "accomplishment", "big", "small", "deserves", "recognition", "celebrate", "achievements", "others", "acknowledging", "accomplishments", "builds", "confidence", "motivation"] }
         ]
       }
     }
@@ -225,76 +468,26 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
         name: "Social Foundations", 
         description: "Social and workplace communication",
         words: [
-          {
-            id: "r2_m1_w1",
-            content: "cooperate",
-            difficulty: 1,
-            points: 2,
-            keyWords: ["cooperate"]
-          },
-          {
-            id: "r2_m1_w2",
-            content: "schedule",
-            difficulty: 1,
-            points: 2,
-            keyWords: ["schedule"]
-          },
-          {
-            id: "r2_m1_w3",
-            content: "purchase",
-            difficulty: 1,
-            points: 2,
-            keyWords: ["purchase"]
-          },
-          {
-            id: "r2_m1_w4",
-            content: "community",
-            difficulty: 1,
-            points: 2,
-            keyWords: ["community"]
-          },
-          {
-            id: "r2_m1_w5",
-            content: "organize",
-            difficulty: 2,
-            points: 2,
-            keyWords: ["organize"]
-          },
-          {
-            id: "r2_m1_w6",
-            content: "negotiate",
-            difficulty: 2,
-            points: 2,
-            keyWords: ["negotiate"]
-          },
-          {
-            id: "r2_m1_w7",
-            content: "appreciate",
-            difficulty: 2,
-            points: 2,
-            keyWords: ["appreciate"]
-          },
-          {
-            id: "r2_m1_w8",
-            content: "responsibilities",
-            difficulty: 3,
-            points: 2,
-            keyWords: ["responsibilities"]
-          },
-          {
-            id: "r2_m1_w9",
-            content: "professional",
-            difficulty: 3,
-            points: 2,
-            keyWords: ["professional"]
-          },
-          {
-            id: "r2_m1_w10",
-            content: "collaboration",
-            difficulty: 3,
-            points: 2,
-            keyWords: ["collaboration"]
-          }
+          { id: "r2_m1_w1", content: "cooperate", difficulty: 1, points: 2, keyWords: ["cooperate"] },
+          { id: "r2_m1_w2", content: "schedule", difficulty: 1, points: 2, keyWords: ["schedule"] },
+          { id: "r2_m1_w3", content: "purchase", difficulty: 1, points: 2, keyWords: ["purchase"] },
+          { id: "r2_m1_w4", content: "community", difficulty: 1, points: 2, keyWords: ["community"] },
+          { id: "r2_m1_w5", content: "organize", difficulty: 2, points: 2, keyWords: ["organize"] },
+          { id: "r2_m1_w6", content: "negotiate", difficulty: 2, points: 2, keyWords: ["negotiate"] },
+          { id: "r2_m1_w7", content: "appreciate", difficulty: 2, points: 2, keyWords: ["appreciate"] },
+          { id: "r2_m1_w8", content: "responsibilities", difficulty: 3, points: 2, keyWords: ["responsibilities"] },
+          { id: "r2_m1_w9", content: "professional", difficulty: 3, points: 2, keyWords: ["professional"] },
+          { id: "r2_m1_w10", content: "collaboration", difficulty: 3, points: 2, keyWords: ["collaboration"] },
+          { id: "r2_m1_w11", content: "participate", difficulty: 1, points: 2, keyWords: ["participate"] },
+          { id: "r2_m1_w12", content: "contribute", difficulty: 1, points: 2, keyWords: ["contribute"] },
+          { id: "r2_m1_w13", content: "volunteer", difficulty: 1, points: 2, keyWords: ["volunteer"] },
+          { id: "r2_m1_w14", content: "budget", difficulty: 2, points: 2, keyWords: ["budget"] },
+          { id: "r2_m1_w15", content: "prioritize", difficulty: 2, points: 2, keyWords: ["prioritize"] },
+          { id: "r2_m1_w16", content: "coordinate", difficulty: 2, points: 2, keyWords: ["coordinate"] },
+          { id: "r2_m1_w17", content: "implement", difficulty: 3, points: 2, keyWords: ["implement"] },
+          { id: "r2_m1_w18", content: "accommodate", difficulty: 3, points: 2, keyWords: ["accommodate"] },
+          { id: "r2_m1_w19", content: "facilitate", difficulty: 3, points: 2, keyWords: ["facilitate"] },
+          { id: "r2_m1_w20", content: "demonstrate", difficulty: 3, points: 2, keyWords: ["demonstrate"] }
         ], 
         sentences: [
           { id: "r2_m1_s1", content: "We need to cooperate on this project.", difficulty: 1, points: 2, keyWords: ["need", "cooperate", "project"] },
@@ -306,7 +499,17 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r2_m1_s7", content: "I really appreciate your help.", difficulty: 3, points: 2, keyWords: ["really", "appreciate", "help"] },
           { id: "r2_m1_s8", content: "These are my main responsibilities.", difficulty: 3, points: 2, keyWords: ["main", "responsibilities"] },
           { id: "r2_m1_s9", content: "He maintains a professional attitude.", difficulty: 3, points: 2, keyWords: ["maintains", "professional", "attitude"] },
-          { id: "r2_m1_s10", content: "Successful collaboration requires good communication.", difficulty: 3, points: 2, keyWords: ["successful", "collaboration", "requires", "communication"] }
+          { id: "r2_m1_s10", content: "Successful collaboration requires good communication.", difficulty: 3, points: 2, keyWords: ["successful", "collaboration", "requires", "communication"] },
+          { id: "r2_m1_s11", content: "Everyone should participate in the discussion.", difficulty: 1, points: 2, keyWords: ["everyone", "participate", "discussion"] },
+          { id: "r2_m1_s12", content: "You can contribute your ideas freely.", difficulty: 1, points: 2, keyWords: ["contribute", "ideas", "freely"] },
+          { id: "r2_m1_s13", content: "I volunteer at the local shelter.", difficulty: 1, points: 2, keyWords: ["volunteer", "local", "shelter"] },
+          { id: "r2_m1_s14", content: "We must stay within our budget.", difficulty: 2, points: 2, keyWords: ["stay", "within", "budget"] },
+          { id: "r2_m1_s15", content: "Let's prioritize the urgent tasks.", difficulty: 2, points: 2, keyWords: ["prioritize", "urgent", "tasks"] },
+          { id: "r2_m1_s16", content: "We need to coordinate our efforts.", difficulty: 2, points: 2, keyWords: ["coordinate", "efforts"] },
+          { id: "r2_m1_s17", content: "They will implement the new policy.", difficulty: 3, points: 2, keyWords: ["implement", "new", "policy"] },
+          { id: "r2_m1_s18", content: "We can accommodate your special requests.", difficulty: 3, points: 2, keyWords: ["accommodate", "special", "requests"] },
+          { id: "r2_m1_s19", content: "She will facilitate the training session.", difficulty: 3, points: 2, keyWords: ["facilitate", "training", "session"] },
+          { id: "r2_m1_s20", content: "Please demonstrate the proper procedure.", difficulty: 3, points: 2, keyWords: ["demonstrate", "proper", "procedure"] }
         ], 
         paragraphs: [
           { id: "r2_m1_p1", content: "Cooperation is essential in any workplace. When team members work together effectively, projects succeed. Everyone benefits from good teamwork.", difficulty: 1, points: 3, keyWords: ["cooperation", "essential", "workplace", "teamwork"] },
@@ -318,7 +521,17 @@ export const GAME_CONTENT: { [key: string]: ReaderLevelData } = {
           { id: "r2_m1_p7", content: "Showing appreciation for others builds stronger relationships. Thank people when they help you. Recognition motivates people to continue good work.", difficulty: 3, points: 3, keyWords: ["appreciation", "relationships", "recognition", "motivates"] },
           { id: "r2_m1_p8", content: "Understanding your responsibilities at work and at home is important for success. Make a list of your duties and prioritize them carefully.", difficulty: 3, points: 3, keyWords: ["responsibilities", "success", "duties", "prioritize"] },
           { id: "r2_m1_p9", content: "Maintaining a professional appearance and behavior is crucial in the workplace. Dress appropriately for your job. Treat colleagues with respect.", difficulty: 3, points: 3, keyWords: ["professional", "appearance", "workplace", "colleagues"] },
-          { id: "r2_m1_p10", content: "Effective collaboration happens when people combine their different skills and knowledge. Share information openly with your team. Listen to different perspectives.", difficulty: 3, points: 3, keyWords: ["collaboration", "skills", "knowledge", "perspectives"] }
+          { id: "r2_m1_p10", content: "Effective collaboration happens when people combine their different skills and knowledge. Share information openly with your team. Listen to different perspectives.", difficulty: 3, points: 3, keyWords: ["collaboration", "skills", "knowledge", "perspectives"] },
+          { id: "r2_m1_p11", content: "Active participation in meetings and discussions shows engagement. Don't be afraid to share your thoughts. Your input might provide valuable insights.", difficulty: 1, points: 3, keyWords: ["participation", "meetings", "engagement", "insights"] },
+          { id: "r2_m1_p12", content: "Contributing your skills to team projects makes you a valuable member. Everyone has something unique to offer. Find ways to add value.", difficulty: 1, points: 3, keyWords: ["contributing", "skills", "valuable", "member"] },
+          { id: "r2_m1_p13", content: "Volunteering in your community creates positive change. It helps those in need and builds connections. Many people find volunteering personally rewarding.", difficulty: 1, points: 3, keyWords: ["volunteering", "community", "positive", "rewarding"] },
+          { id: "r2_m1_p14", content: "Creating and maintaining a budget helps you manage money wisely. Track your income and expenses carefully. Save regularly for future needs.", difficulty: 2, points: 3, keyWords: ["budget", "manage", "money", "save"] },
+          { id: "r2_m1_p15", content: "Learning to prioritize tasks improves productivity. Focus on important and urgent items first. Less critical tasks can wait until later.", difficulty: 2, points: 3, keyWords: ["prioritize", "productivity", "important", "urgent"] },
+          { id: "r2_m1_p16", content: "Coordinating activities among multiple people requires clear communication. Set expectations early and check in regularly. Good coordination prevents confusion.", difficulty: 2, points: 3, keyWords: ["coordinating", "communication", "expectations", "confusion"] },
+          { id: "r2_m1_p17", content: "Implementing new procedures takes careful planning and training. Explain the reasons for changes clearly. Provide support during the transition period.", difficulty: 3, points: 3, keyWords: ["implementing", "procedures", "planning", "transition"] },
+          { id: "r2_m1_p18", content: "Being able to accommodate different needs and preferences shows flexibility. Listen to requests carefully and find creative solutions. Flexibility builds goodwill.", difficulty: 3, points: 3, keyWords: ["accommodate", "flexibility", "requests", "solutions"] },
+          { id: "r2_m1_p19", content: "Facilitating group discussions requires skill and practice. Keep conversations on track while allowing everyone to participate. Manage time effectively throughout.", difficulty: 3, points: 3, keyWords: ["facilitating", "discussions", "skill", "participate"] },
+          { id: "r2_m1_p20", content: "Demonstrating new skills or procedures helps others learn effectively. Show each step clearly and explain why it matters. Allow time for questions and practice.", difficulty: 3, points: 3, keyWords: ["demonstrating", "skills", "procedures", "learn"] }
         ]
       },
       macroLevel2: { 
@@ -879,22 +1092,70 @@ export const getContentForLevel = (readerLevel: 1 | 2 | 3 | 4, macroLevel: 1 | 2
   return levelData?.macroLevels[`macroLevel${macroLevel}` as keyof typeof levelData.macroLevels];
 };
 
+// Randomization utility - gets a random unused index
+const getRandomUnusedIndex = (
+  arrayLength: number, 
+  usedIndices: number[] = []
+): number => {
+  // If all indices have been used, reset
+  if (usedIndices.length >= arrayLength) {
+    usedIndices = [];
+  }
+  
+  // Get available indices
+  const availableIndices = Array.from({ length: arrayLength }, (_, i) => i)
+    .filter(i => !usedIndices.includes(i));
+  
+  // Return random available index
+  const randomIndex = Math.floor(Math.random() * availableIndices.length);
+  return availableIndices[randomIndex];
+};
+
+// Get tracking key for used indices
+const getTrackingKey = (
+  readerLevel: number, 
+  macroLevel: number, 
+  type: 'words' | 'sentences' | 'paragraphs'
+): string => {
+  return `r${readerLevel}_m${macroLevel}_${type}`;
+};
+
 export const getSubLevelContent = (
   readerLevel: 1 | 2 | 3 | 4, 
   macroLevel: 1 | 2 | 3 | 4, 
-  subLevel: number
-): ContentItem | null => {
+  subLevel: number,
+  usedIndices: { [key: string]: number[] } = {}
+): { content: ContentItem | null; selectedIndex: number; trackingKey: string } => {
   const content = getContentForLevel(readerLevel, macroLevel);
-  if (!content) return null;
+  if (!content) return { content: null, selectedIndex: -1, trackingKey: '' };
 
+  let contentArray: ContentItem[];
+  let type: 'words' | 'sentences' | 'paragraphs';
+  
   // Sub-levels 1-10: Words, 11-20: Sentences, 21-30: Paragraphs
   if (subLevel <= 10) {
-    return content.words[subLevel - 1] || null;
+    contentArray = content.words;
+    type = 'words';
   } else if (subLevel <= 20) {
-    return content.sentences[subLevel - 11] || null;
+    contentArray = content.sentences;
+    type = 'sentences';
   } else {
-    return content.paragraphs[subLevel - 21] || null;
+    contentArray = content.paragraphs;
+    type = 'paragraphs';
   }
+
+  const trackingKey = getTrackingKey(readerLevel, macroLevel, type);
+  const usedIndicesForType = usedIndices[trackingKey] || [];
+  
+  // Get random unused index
+  const selectedIndex = getRandomUnusedIndex(contentArray.length, usedIndicesForType);
+  const selectedContent = contentArray[selectedIndex];
+
+  return { 
+    content: selectedContent || null, 
+    selectedIndex, 
+    trackingKey 
+  };
 };
 
 // Progression Logic

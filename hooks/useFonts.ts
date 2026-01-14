@@ -18,18 +18,22 @@ export default function useCustomFonts() {
 
   useEffect(() => {
     async function prepare() {
-      // Keep splash screen visible while fonts are loading
-      await SplashScreen.preventAutoHideAsync();
+      try {
+        // Keep splash screen visible while fonts are loading
+        await SplashScreen.preventAutoHideAsync();
+      } catch (e) {
+        console.warn('SplashScreen error:', e);
+      }
     }
     prepare();
   }, []);
 
   useEffect(() => {
-    if (fontsLoaded) {
-      // Hide splash screen when fonts are ready
-      SplashScreen.hideAsync();
+    if (fontsLoaded || fontError) {
+      // Hide splash screen when fonts are ready or if there's an error
+      SplashScreen.hideAsync().catch(console.warn);
     }
-  }, [fontsLoaded]);
+  }, [fontsLoaded, fontError]);
 
   return fontsLoaded;
 }

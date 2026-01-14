@@ -9,6 +9,7 @@ import {
   ScrollView,
   ActivityIndicator,
   FlatList,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,6 +35,8 @@ interface StudentData {
   macroLevel: number;
   assessmentCompleted: boolean;
   lastActivity: Date;
+  macroLevelProgress?: any;
+  scores?: number[];
 }
 
 interface StudentListProps {
@@ -43,6 +46,8 @@ interface StudentListProps {
 export default function StudentList({ navigation }: StudentListProps) {
   const [students, setStudents] = useState<StudentData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedStudent, setSelectedStudent] = useState<StudentData | null>(null);
+  const [showDiagnosticModal, setShowDiagnosticModal] = useState(false);
 
   useEffect(() => {
     loadStudentData();
@@ -102,6 +107,8 @@ export default function StudentList({ navigation }: StudentListProps) {
             macroLevel: progressData.macroLevel || 0,
             assessmentCompleted: progressData.assessmentCompleted || false,
             lastActivity: progressData.updatedAt?.toDate() || new Date(),
+            macroLevelProgress: progressData.macroLevelProgress || {},
+            scores: progressData.scores || [],
           });
         } catch (error) {
           console.error('Error processing student:', error);
@@ -233,6 +240,7 @@ export default function StudentList({ navigation }: StudentListProps) {
               <Text style={styles.headerText}>Room</Text>
               <Text style={styles.headerText}>Reader Level</Text>
               <Text style={styles.headerText}>Macro Level</Text>
+              <Text style={styles.headerText}>Actions</Text>
             </View>
 
             {/* Table Content */}
@@ -262,16 +270,185 @@ export default function StudentList({ navigation }: StudentListProps) {
                         <Text style={styles.levelValueTable}>{student.macroLevel}</Text>
                       </View>
                     </View>
+                    <View style={styles.actionCell}>
+                      <TouchableOpacity
+                        style={styles.viewButton}
+                        onPress={() => {
+                          setSelectedStudent(student);
+                          setShowDiagnosticModal(true);
+                        }}
+                      >
+                        <Ionicons name="eye-outline" size={18} color="white" />
+                        <Text style={styles.viewButtonText}>View</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ))}
               </View>
             )}
           </View>
         </ScrollView>
+
+        {/* Diagnostic Review Modal */}
+        {selectedStudent && (
+          <Modal
+            visible={showDiagnosticModal}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowDiagnosticModal(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Diagnostic Report</Text>
+                  <TouchableOpacity onPress={() => setShowDiagnosticModal(false)}>
+                    <Ionicons name="close" size={24} color={COLORS.primary} />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView style={styles.modalBody}>
+                  {/* Student Info */}
+                  <View style={styles.studentInfoSection}>
+                    <View style={styles.studentAvatarLarge}>
+                      <Ionicons name="person" size={32} color={COLORS.primary} />
+                    </View>
+                    <Text style={styles.modalStudentName}>{selectedStudent.name}</Text>
+                    <Text style={styles.modalStudentEmail}>{selectedStudent.email}</Text>
+                  </View>
+
+                  {/* Reader Level Badge */}
+                  <View style={styles.modalLevelBadge}>
+                    <View style={[
+                      styles.modalLevelCircle,
+                      { backgroundColor: getLevelColor(selectedStudent.readerLevel) }
+                    ]}>
+                      <Text style={styles.modalLevelNumber}>{selectedStudent.readerLevel}</Text>
+                    </View>
+                    <Text style={styles.modalLevelText}>Reader Level {selectedStudent.readerLevel}</Text>
+                    <Text style={styles.modalMacroText}>Macro Level {selectedStudent.macroLevel}</Text>
+                  </View>
+
+                  {/* Diagnostic Recommendation */}
+                  <View style={styles.statsSection}>
+                    <View style={styles.statsSectionHeader}>
+                      <Ionicons name="medical" size={20} color={COLORS.primary} />
+                      <Text style={styles.statsSectionTitle}>Diagnostic Recommendation</Text>
+                    </View>
+                    <Text style={styles.recommendationText}>
+                      {calculateDiagnosticStats(selectedStudent).recommendation}
+                    </Text>
+                  </View>
+
+                  {/* Performance Stats */}
+                  <View style={styles.statsSection}>
+                    <View style={styles.statsSectionHeader}>
+                      <Ionicons name="stats-chart" size={20} color={COLORS.primary} />
+                      <Text style={styles.statsSectionTitle}>Performance Statistics</Text>
+                    </View>
+                    
+                    <View style={styles.statsGrid}>
+                      <View style={styles.statCard}>
+                        <Ionicons name="checkmark-circle" size={32} color="#52c41a" />
+                        <Text style={styles.statValue}>{calculateDiagnosticStats(selectedStudent).totalCorrect}</Text>
+                        <Text style={styles.statLabel}>Correct Words</Text>
+                      </View>
+                      <View style={styles.statCard}>
+                        <Ionicons name="close-circle" size={32} color="#f5222d" />
+                        <Text style={styles.statValue}>{calculateDiagnosticStats(selectedStudent).totalIncorrect}</Text>
+                        <Text style={styles.statLabel}>Incorrect Words</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.statsGrid}>
+                      <View style={styles.statCard}>
+                        <Ionicons name="list" size={32} color="#1890ff" />
+                        <Text style={styles.statValue}>{calculateDiagnosticStats(selectedStudent).totalAttempts}</Text>
+                        <Text style={styles.statLabel}>Total Pronounced</Text>
+                      </View>
+                      <View style={styles.statCard}>
+                        <Ionicons name="trophy" size={32} color="#faad14" />
+                        <Text style={styles.statValue}>{calculateDiagnosticStats(selectedStudent).averageScore}%</Text>
+                        <Text style={styles.statLabel}>Average Score</Text>
+                      </View>
+                    </View>
+                  </View>
+                </ScrollView>
+
+                <TouchableOpacity
+                  style={styles.modalCloseButton}
+                  onPress={() => setShowDiagnosticModal(false)}
+                >
+                  <Text style={styles.modalCloseButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        )}
       </SafeAreaView>
     </LinearGradient>
   );
 }
+
+const calculateDiagnosticStats = (student: StudentData) => {
+  let totalCorrect = 0;
+  let totalIncorrect = 0;
+  let totalScore = 0;
+  let totalAttempts = 0;
+
+  // Aggregate from macro level progress
+  if (student.macroLevelProgress) {
+    Object.values(student.macroLevelProgress).forEach((macroLevel: any) => {
+      ['words', 'sentences', 'paragraphs'].forEach((type) => {
+        if (macroLevel[type]?.scores) {
+          macroLevel[type].scores.forEach((score: number) => {
+            totalAttempts++;
+            totalScore += score;
+            if (score >= 70) totalCorrect++;
+            else totalIncorrect++;
+          });
+        }
+      });
+    });
+  }
+
+  // Also include current scores array
+  if (student.scores && Array.isArray(student.scores)) {
+    student.scores.forEach((score: number) => {
+      totalAttempts++;
+      totalScore += score;
+      if (score >= 70) totalCorrect++;
+      else totalIncorrect++;
+    });
+  }
+
+  const averageScore = totalAttempts > 0 ? Math.round(totalScore / totalAttempts) : 0;
+  const accuracyRate = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
+
+  // Generate detailed diagnostic recommendation based on performance
+  let recommendation = '';
+  
+  if (totalAttempts === 0) {
+    recommendation = 'This student has not started practicing yet. Encourage them to begin their pronunciation practice journey!';
+  } else if (averageScore >= 90) {
+    recommendation = `Outstanding performance! The student's accuracy rate of ${accuracyRate}% shows excellent pronunciation skills. They've correctly pronounced ${totalCorrect} out of ${totalAttempts} items. Consider encouraging them to advance to the next reader level for more challenging content.`;
+  } else if (averageScore >= 80) {
+    recommendation = `Great work! The student is showing strong pronunciation skills with ${accuracyRate}% accuracy (${totalCorrect} correct out of ${totalAttempts}). To reach the next level:\n\n• Focus on clarity and enunciation for the ${totalIncorrect} items they missed\n• Practice at a steady pace - not too fast, not too slow\n• Continue building confidence with current content before advancing`;
+  } else if (averageScore >= 70) {
+    recommendation = `Good progress! The student is on the right track with ${accuracyRate}% accuracy (${totalCorrect} correct, ${totalIncorrect} incorrect). Areas to improve:\n\n• Pronunciation Clarity: Focus on clear articulation of each word\n• Pacing: Speak at a comfortable speed that allows for proper enunciation\n• Practice: Review challenging words before recording\n• Confidence: Take time and speak with confidence`;
+  } else if (averageScore >= 50) {
+    recommendation = `Needs more practice! Current accuracy is ${accuracyRate}% (${totalCorrect} correct, ${totalIncorrect} incorrect). Recommendations:\n\n• Slow Down: Take time to pronounce each word clearly\n• Listen First: Read the content aloud before recording\n• Articulation: Focus on moving lips and tongue properly\n• Environment: Practice in a quiet space for better recognition\n• Repetition: Practice difficult words multiple times`;
+  } else {
+    recommendation = `Significant improvement needed! Current accuracy: ${accuracyRate}% (${totalCorrect} correct, ${totalIncorrect} incorrect). Focus on these fundamentals:\n\n• Read Slowly: Take 2-3 seconds per word\n• Enunciate Clearly: Exaggerate mouth movements\n• Quiet Environment: Ensure minimal background noise\n• Pre-Reading: Practice reading aloud before recording\n• Break It Down: Focus on one word at a time\n• Phonetics: Pay attention to beginning and ending sounds\n\nConsider scheduling additional practice sessions with this student.`;
+  }
+
+  return {
+    totalCorrect,
+    totalIncorrect,
+    totalAttempts,
+    averageScore,
+    recommendation
+  };
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -363,6 +540,24 @@ const styles = StyleSheet.create({
   levelCell: {
     flex: 1,
     alignItems: 'center',
+  },
+  actionCell: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  viewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 4,
+  },
+  viewButtonText: {
+    fontSize: 12,
+    fontFamily: getFontFamily('semibold'),
+    color: 'white',
   },
   studentNameTable: {
     fontSize: 14,
@@ -596,5 +791,161 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 24,
     paddingHorizontal: 40,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: getFontFamily('bold'),
+    color: COLORS.primary,
+  },
+  modalBody: {
+    maxHeight: 450,
+    padding: 20,
+  },
+  studentInfoSection: {
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  studentAvatarLarge: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  modalStudentName: {
+    fontSize: 22,
+    fontFamily: getFontFamily('bold'),
+    color: '#333',
+    marginBottom: 4,
+  },
+  modalStudentEmail: {
+    fontSize: 14,
+    fontFamily: getFontFamily('regular'),
+    color: '#666',
+  },
+  modalLevelBadge: {
+    alignItems: 'center',
+    marginBottom: 24,
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+  },
+  modalLevelCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  modalLevelNumber: {
+    fontSize: 28,
+    fontFamily: getFontFamily('bold'),
+    color: 'white',
+  },
+  modalLevelText: {
+    fontSize: 16,
+    fontFamily: getFontFamily('semibold'),
+    color: '#333',
+    marginBottom: 4,
+  },
+  modalMacroText: {
+    fontSize: 14,
+    fontFamily: getFontFamily('medium'),
+    color: '#666',
+  },
+  statsSection: {
+    marginBottom: 24,
+  },
+  statsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  statsSectionTitle: {
+    fontSize: 16,
+    fontFamily: getFontFamily('semibold'),
+    color: '#333',
+  },
+  recommendationText: {
+    fontSize: 14,
+    fontFamily: getFontFamily('regular'),
+    color: '#555',
+    lineHeight: 22,
+    backgroundColor: '#f8f9fa',
+    padding: 16,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.primary,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    gap: 8,
+  },
+  statValue: {
+    fontSize: 24,
+    fontFamily: getFontFamily('bold'),
+    color: '#333',
+  },
+  statLabel: {
+    fontSize: 12,
+    fontFamily: getFontFamily('regular'),
+    color: '#666',
+    textAlign: 'center',
+  },
+  modalCloseButton: {
+    backgroundColor: COLORS.primary,
+    padding: 16,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    alignItems: 'center',
+  },
+  modalCloseButtonText: {
+    fontSize: 16,
+    fontFamily: getFontFamily('semibold'),
+    color: 'white',
   },
 });

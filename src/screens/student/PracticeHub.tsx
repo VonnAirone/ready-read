@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, GRADIENTS } from '../../constants/theme';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../../services/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { determineReaderLevel } from '../../data/assessmentData';
 import PracticeGame from './PracticeGame';
 
@@ -25,8 +25,21 @@ interface UserProgress {
   lastAssessmentDate?: string;
 }
 
+interface PracticeStats {
+  totalCorrect: number;
+  totalIncorrect: number;
+  totalAttempts: number;
+  averageScore: number;
+}
+
 export default function PracticeHub({ navigation }: any) {
   const [userProgress, setUserProgress] = useState<UserProgress | null>(null);
+  const [practiceStats, setPracticeStats] = useState<PracticeStats>({
+    totalCorrect: 0,
+    totalIncorrect: 0,
+    totalAttempts: 0,
+    averageScore: 0
+  });
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [showPracticeGame, setShowPracticeGame] = useState(false);
@@ -61,6 +74,9 @@ export default function PracticeHub({ navigation }: any) {
         // No progress found - user needs assessment
         setUserProgress({ hasCompletedAssessment: false });
       }
+
+      // Load practice statistics from StudentProgress collection
+      await loadPracticeStats(uid);
     } catch (error) {
       console.error('Error loading user progress:', error);
       setUserProgress({ hasCompletedAssessment: false });
@@ -69,15 +85,89 @@ export default function PracticeHub({ navigation }: any) {
     }
   };
 
-  const handleStartAssessment = () => {
-    // Navigate to the modular assessment system
-    navigation.navigate('PronunciationGameModular', {
-      onAssessmentComplete: async (results: any) => {
-        if (userId) {
-          await saveAssessmentResults(userId, results);
-          await loadUserProgress(userId);
+  const loadPracticeStats = async (uid: string) => {
+    try {
+      // Get personal practice progress document
+      const personalDocId = `${uid}_PERSONAL_PRACTICE`;
+      const personalProgressDoc = await getDoc(doc(db, 'StudentProgress', personalDocId));
+      
+      let totalCorrect = 0;
+      let totalIncorrect = 0;
+      let totalAttempts = 0;
+      let totalScore = 0;
+      
+      if (personalProgressDoc.exists()) {
+        const data = personalProgressDoc.data();
+        
+        // Aggregate scores from macro level progress
+        if (data.macroLevelProgress) {
+          Object.values(data.macroLevelProgress).forEach((macroLevel: any) => {
+            // Count completed words
+            if (macroLevel.words?.scores) {
+              macroLevel.words.scores.forEach((score: number) => {
+                totalAttempts++;
+                totalScore += score;
+                if (score >= 70) totalCorrect++;
+                else totalIncorrect++;
+              });
+            }
+            // Count completed sentences
+            if (macroLevel.sentences?.scores) {
+              macroLevel.sentences.scores.forEach((score: number) => {
+                totalAttempts++;
+                totalScore += score;
+                if (score >= 70) totalCorrect++;
+                else totalIncorrect++;
+              });
+            }
+            // Count completed paragraphs
+            if (macroLevel.paragraphs?.scores) {
+              macroLevel.paragraphs.scores.forEach((score: number) => {
+                totalAttempts++;
+                totalScore += score;
+                if (score >= 70) totalCorrect++;
+                else totalIncorrect++;
+              });
+            }
+          });
+        }
+        
+        // Also check for legacy scoresArray
+        if (data.scoresArray && Array.isArray(data.scoresArray)) {
+          data.scoresArray.forEach((score: number) => {
+            totalAttempts++;
+            totalScore += score;
+            if (score >= 70) totalCorrect++;
+            else totalIncorrect++;
+          });
         }
       }
+      
+      const averageScore = totalAttempts > 0 ? Math.round(totalScore / totalAttempts) : 0;
+      
+      setPracticeStats({
+        totalCorrect,
+        totalIncorrect,
+        totalAttempts,
+        averageScore
+      });
+      
+      console.log('📊 Practice Stats:', { totalCorrect, totalIncorrect, totalAttempts, averageScore });
+    } catch (error) {
+      console.error('Error loading practice stats:', error);
+    }
+  };
+
+  const handleStartAssessment = () => {
+    // Navigate to RegularRoom with assessment mode
+    navigation.navigate('PronunciationRoom', {
+      roomData: {
+        isPersonalRoom: true,
+        roomCode: 'ASSESSMENT',
+        roomName: 'Assessment',
+        isAssessment: true
+      },
+      fromPersonalProgress: true
     });
   };
 
@@ -181,6 +271,40 @@ export default function PracticeHub({ navigation }: any) {
           </View>
         ) : (
           <>
+            {/* Practice Statistics Card - Always show */}
+            <View style={styles.statsCard}>
+              <Text style={styles.statsTitle}>
+                {practiceStats.totalAttempts > 0 ? 'Your Practice Statistics' : 'Practice Statistics'}
+              </Text>
+              <View style={styles.statsGrid}>
+                <View style={styles.statItem}>
+                  <Ionicons name="checkmark-circle" size={32} color="#52c41a" />
+                  <Text style={styles.statNumber}>{practiceStats.totalCorrect}</Text>
+                  <Text style={styles.statLabel}>Correct</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="close-circle" size={32} color="#f5222d" />
+                  <Text style={styles.statNumber}>{practiceStats.totalIncorrect}</Text>
+                  <Text style={styles.statLabel}>Incorrect</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="bar-chart" size={32} color="#1890ff" />
+                  <Text style={styles.statNumber}>{practiceStats.totalAttempts}</Text>
+                  <Text style={styles.statLabel}>Total</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="trophy" size={32} color="#faad14" />
+                  <Text style={styles.statNumber}>{practiceStats.averageScore}%</Text>
+                  <Text style={styles.statLabel}>Average</Text>
+                </View>
+              </View>
+              {practiceStats.totalAttempts === 0 && (
+                <Text style={styles.noDataText}>
+                  Start practicing to see your statistics!
+                </Text>
+              )}
+            </View>
+
             {/* Reader Level Display */}
             <View style={styles.levelCard}>
               <View style={styles.levelHeader}>
@@ -338,6 +462,52 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 16,
     fontWeight: '600',
+  },
+  statsCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  statsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.black,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    flexWrap: 'wrap',
+  },
+  statItem: {
+    alignItems: 'center',
+    minWidth: '22%',
+    marginBottom: 8,
+  },
+  statNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: COLORS.black,
+    marginTop: 8,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  noDataText: {
+    textAlign: 'center',
+    color: '#999',
+    fontSize: 14,
+    marginTop: 12,
+    fontStyle: 'italic',
   },
   levelCard: {
     backgroundColor: COLORS.white,

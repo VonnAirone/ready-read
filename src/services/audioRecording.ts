@@ -84,6 +84,10 @@ export class AudioRecordingService {
     }
 
     try {
+      // Get recording status before stopping
+      const status = await this.recording.getStatusAsync();
+      const durationMs = status.durationMillis || 0;
+      
       await this.recording.stopAndUnloadAsync();
       const uri = this.recording.getURI();
       
@@ -94,7 +98,19 @@ export class AudioRecordingService {
         return { success: false, error: 'Recording URI not available' };
       }
 
-      console.log('Recording stopped successfully, URI:', uri);
+      // Validate minimum duration (500ms)
+      if (durationMs < 500) {
+        console.warn('⚠️ Recording too short:', durationMs, 'ms');
+        return { 
+          success: false, 
+          error: 'Recording too short. Please record for at least 1 second.' 
+        };
+      }
+
+      console.log('✅ Recording stopped successfully:', {
+        uri,
+        duration: `${(durationMs / 1000).toFixed(2)}s`
+      });
       return { success: true, uri };
     } catch (error) {
       console.error('Failed to stop recording:', error);

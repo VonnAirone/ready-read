@@ -100,12 +100,21 @@ export class GoogleSpeechService {
   /**
    * Make API request with automatic retry for the 20% error rate
    */
-  private async makeRequestWithRetry(requestPayload: any, maxRetries: number = 2): Promise<Response> {
+  private async makeRequestWithRetry(requestPayload: any, maxRetries: number = 3): Promise<Response> {
     let lastError: Error | null = null;
+    const startTime = Date.now();
     
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      // Create timeout controller for this attempt
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
       try {
-        console.log(`🔄 API Request attempt ${attempt}/${maxRetries + 1}`);
+        if (attempt === 1) {
+          console.log(`📡 Making API request with ${requestPayload.config.encoding} encoding`);
+        } else {
+          console.log(`🔄 Retry attempt ${attempt}/${maxRetries + 1}`);
+        }
         
         const response = await fetch(
           `https://speech.googleapis.com/v1/speech:recognize?key=${this.apiKey}`,
@@ -114,32 +123,53 @@ export class GoogleSpeechService {
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(requestPayload)
+            body: JSON.stringify(requestPayload),
+            signal: controller.signal
           }
         );
+        
+        // Clear timeout on success
+        clearTimeout(timeoutId);
 
-        // If successful or client error (don't retry 4xx), return response
-        if (response.ok || (response.status >= 400 && response.status < 500)) {
+        // Success
+        if (response.ok) {
+          const duration = ((Date.now() - startTime) / 1000).toFixed(2);
           if (attempt > 1) {
-            console.log(`✅ Request succeeded on attempt ${attempt}`);
+            console.log(`✅ Request succeeded on attempt ${attempt} (${duration}s total)`);
+          } else {
+            console.log(`✅ Request succeeded (${duration}s)`);
           }
           return response;
         }
 
+        // Client error (4xx) - don't retry, these won't succeed
+        if (response.status >= 400 && response.status < 500) {
+          clearTimeout(timeoutId);
+          const errorData = await response.json().catch(() => ({}));
+          console.error(`❌ Client error ${response.status}:`, errorData);
+          return response; // Return to handle error upstream
+        }
+
         // Server error (5xx) - worth retrying
+        clearTimeout(timeoutId);
         const errorText = await response.text();
-        lastError = new Error(`HTTP ${response.status}: ${errorText}`);
-        console.warn(`⚠️ Attempt ${attempt} failed with server error:`, lastError.message);
+        lastError = new Error(`Server error HTTP ${response.status}: ${errorText}`);
+        console.warn(`⚠️ Attempt ${attempt}/${maxRetries + 1} failed:`, lastError.message);
 
         if (attempt <= maxRetries) {
-          const delay = Math.pow(2, attempt - 1) * 1000; // Exponential backoff: 1s, 2s, 4s
+          const delay = Math.pow(2, attempt - 1) * 1000; // Exponential backoff: 1s, 2s, 4s, 8s
           console.log(`⏳ Waiting ${delay}ms before retry...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
 
       } catch (networkError: any) {
+        clearTimeout(timeoutId); // Clear timeout on error
+        
+        const isTimeout = networkError.name === 'AbortError' || networkError.name === 'TimeoutError' || networkError.message?.includes('timeout');
+        const errorType = isTimeout ? 'Timeout' : 'Network';
+        
         lastError = networkError;
-        console.warn(`⚠️ Attempt ${attempt} failed with network error:`, networkError.message);
+        console.warn(`⚠️ Attempt ${attempt}/${maxRetries + 1} failed with ${errorType} error:`, networkError.message);
 
         if (attempt <= maxRetries) {
           const delay = Math.pow(2, attempt - 1) * 1000;
@@ -149,6 +179,8 @@ export class GoogleSpeechService {
       }
     }
 
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.error(`❌ All ${maxRetries + 1} attempts failed after ${totalTime}s`);
     throw lastError || new Error('All retry attempts failed');
   }
 
@@ -160,10 +192,11 @@ export class GoogleSpeechService {
     config: Partial<GoogleSpeechConfig> = {}
   ): Promise<TranscriptionResult> {
     try {
-      // Default configuration - Use MP3 to match actual recording format
+      // Default configuration - Use WEBM_OPUS for better format handling
+      // WEBM_OPUS is more flexible and can process M4A/AAC recordings
       const defaultConfig: GoogleSpeechConfig = {
-        encoding: 'MP3',
-        sampleRateHertz: 16000, // Will be ignored for MP3, but kept for compatibility
+        encoding: 'WEBM_OPUS',
+        sampleRateHertz: 16000, // Will be ignored for WEBM_OPUS, but kept for compatibility
         languageCode: 'en-US',
         enableAutomaticPunctuation: true,
         model: 'latest_short'
@@ -173,6 +206,23 @@ export class GoogleSpeechService {
 
       // Convert audio file to base64
       const audioBase64 = await this.convertAudioToBase64(audioUri);
+
+      // Validate audio data
+      if (!audioBase64 || audioBase64.length === 0) {
+        throw new Error('Audio conversion resulted in empty data');
+      }
+
+      // Estimate audio duration and validate minimum length
+      const estimatedDuration = this.estimateAudioDuration(audioBase64);
+      console.log('📊 Audio stats:', {
+        base64Length: audioBase64.length,
+        estimatedDuration: `${estimatedDuration.toFixed(2)}s`,
+        encoding: finalConfig.encoding
+      });
+
+      if (estimatedDuration < 0.5) {
+        console.warn('⚠️ Audio may be too short for reliable transcription (<0.5s)');
+      }
 
       // Prepare request payload
       const requestPayload = {
@@ -293,31 +343,32 @@ export class GoogleSpeechService {
             return;
           }
           
-          // Remove data URL prefix (data:audio/wav;base64,)
-          let base64Data = base64.split(',')[1];
-          console.log('Base64 conversion successful, length:', base64Data?.length || 0);
+          // Remove data URL prefix (data:audio/xxx;base64,)
+          let base64Data = base64.split(',')[1] || base64;
+          console.log('✅ Base64 conversion successful, length:', base64Data?.length || 0);
           
           if (!base64Data || base64Data.length === 0) {
             reject(new Error('Base64 conversion resulted in empty data'));
             return;
           }
           
-          // Send complete WAV file with LINEAR16 encoding (official Google docs approach)
-          console.log('Sending complete WAV file with LINEAR16 encoding (includes headers)');
+          // Send complete audio file - WEBM_OPUS encoding handles various formats
+          console.log('📦 Sending complete audio file with WEBM_OPUS encoding');
           
-          // Log basic audio info for debugging
+          // Validate base64 data
           try {
             const audioBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-            const riffCheck = String.fromCharCode(...audioBytes.slice(0, 4));
-            console.log('Complete WAV file analysis:', {
+            console.log('📊 Audio file stats:', {
               totalBytes: audioBytes.length,
-              isWAV: riffCheck === 'RIFF',
-              fileType: riffCheck === 'RIFF' ? String.fromCharCode(...audioBytes.slice(8, 12)) : 'Unknown',
               base64Length: base64Data.length,
-              startsWithRIFF: base64Data.startsWith('UklGR') // "RIFF" in base64
+              estimatedKB: (audioBytes.length / 1024).toFixed(2)
             });
+            
+            if (audioBytes.length < 100) {
+              console.warn('⚠️ Audio file suspiciously small (<100 bytes)');
+            }
           } catch (analysisError) {
-            console.warn('Could not analyze audio file:', analysisError);
+            console.warn('⚠️ Could not validate audio file:', analysisError);
           }
           
           resolve(base64Data);
@@ -339,10 +390,10 @@ export class GoogleSpeechService {
    */
   static getPronunciationConfig(): Partial<GoogleSpeechConfig> {
     return {
-      encoding: 'MP3', // Match actual recording format (M4A/MPEG)
+      encoding: 'WEBM_OPUS', // Flexible encoding that handles M4A/AAC
       model: 'latest_short', // Best for short pronunciations
       enableAutomaticPunctuation: false, // More accurate for individual words
-      // Note: sampleRateHertz not needed for MP3 - Google auto-detects
+      // Note: sampleRateHertz not needed for WEBM_OPUS - Google auto-detects
     };
   }
 
@@ -351,10 +402,10 @@ export class GoogleSpeechService {
    */
   static getPassageConfig(): Partial<GoogleSpeechConfig> {
     return {
-      encoding: 'MP3', // Match actual recording format (M4A/MPEG)
+      encoding: 'WEBM_OPUS', // Flexible encoding that handles M4A/AAC
       model: 'latest_long', // Better for longer speech
       enableAutomaticPunctuation: true, // helpful for passages
-      // Note: sampleRateHertz not needed for MP3 - Google auto-detects
+      // Note: sampleRateHertz not needed for WEBM_OPUS - Google auto-detects
     };
   }
 }

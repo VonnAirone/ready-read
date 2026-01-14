@@ -27,11 +27,7 @@ export const getFontFamily = (weight: 'regular' | 'medium' | 'semibold' | 'bold'
 
   const fontName = fontMap[weight];
   
-  // Check if font is loaded, if not return system fallback
-  try {
-    return fontName;
-  } catch (error) {
-    console.warn(`Font ${fontName} not loaded, using system font`);
-    return Platform.OS === 'ios' ? 'System' : 'Roboto';
-  }
+  // Return the font name - expo-font will handle loading
+  // If font isn't loaded yet, React Native will use system font temporarily
+  return fontName || (Platform.OS === 'ios' ? 'System' : 'Roboto');
 };

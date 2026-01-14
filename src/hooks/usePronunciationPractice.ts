@@ -21,6 +21,7 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
     currentMacroLevel: 1,
     currentSubLevel: 1,
     completedContent: [],
+    usedIndices: {},
     scores: {}
   });
 
@@ -30,14 +31,30 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
   const [progressMessage, setProgressMessage] = useState<string>('');
 
   const loadCurrentContent = useCallback(() => {
-    const content = getSubLevelContent(
+    const result = getSubLevelContent(
       gameProgress.currentReaderLevel,
       gameProgress.currentMacroLevel,
-      gameProgress.currentSubLevel
+      gameProgress.currentSubLevel,
+      gameProgress.usedIndices
     );
-    setCurrentContent(content);
-    return content;
-  }, [gameProgress.currentReaderLevel, gameProgress.currentMacroLevel, gameProgress.currentSubLevel]);
+    
+    // Update used indices
+    if (result.content && result.trackingKey) {
+      setGameProgress(prev => ({
+        ...prev,
+        usedIndices: {
+          ...prev.usedIndices,
+          [result.trackingKey]: [
+            ...(prev.usedIndices[result.trackingKey] || []),
+            result.selectedIndex
+          ]
+        }
+      }));
+    }
+    
+    setCurrentContent(result.content);
+    return result.content;
+  }, [gameProgress.currentReaderLevel, gameProgress.currentMacroLevel, gameProgress.currentSubLevel, gameProgress.usedIndices]);
 
   const startPractice = useCallback(() => {
     setIsLoading(true);
@@ -68,6 +85,13 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
       const speechService = new SpeechRecognitionService();
       const transcriptionResult = await speechService.transcribeAudio(audioUri, currentContent.content);
       const transcription = transcriptionResult.text;
+      
+      // Check if no audio was detected (empty transcript)
+      if (!transcription || transcription.trim() === '') {
+        setIsLoading(false);
+        setProgressMessage('');
+        throw new Error('No audio detected. Please try again and speak clearly into the microphone.');
+      }
       
       // Calculate pronunciation score
       const scoreResult = calculatePronunciationScore(

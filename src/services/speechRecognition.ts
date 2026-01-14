@@ -10,13 +10,11 @@ export interface TranscriptionResult {
 export class SpeechRecognitionService {
   async transcribeAudio(audioUri: string, expectedText?: string): Promise<TranscriptionResult> {
     try {
-      console.log('Starting transcription for URI:', audioUri);
+      console.log('🎤 Starting transcription for URI:', audioUri);
 
       const speechService = getGoogleSpeechService();
 
-      // Enable debug mode for detailed logging
-      await speechService.debugTranscription(audioUri);
-
+      // Make the transcription request (retry logic handles failures)
       const result = await speechService.transcribeAudio(audioUri);
 
       if (result.transcript && result.transcript.trim()) {

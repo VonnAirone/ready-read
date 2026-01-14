@@ -38,6 +38,8 @@ interface ProgressStats {
   sentencesCompleted: number;
   paragraphsCompleted: number;
   canAdvanceToNextMacro: boolean;
+  totalCorrect: number;
+  totalIncorrect: number;
 }
 
 export default function PersonalProgress({ navigation }: any) {
@@ -83,17 +85,15 @@ export default function PersonalProgress({ navigation }: any) {
         currentMacroLevel = progressData.macroLevel || progressData.currentMacroLevel || 1;
         macroLevelProgress = progressData.macroLevelProgress || {};
         currentContentType = progressData.currentContentType || 'words';
-      } else {
-        console.log("No progress document found for user:", user.uid);
       }
 
-      // Query for all student results
-      const q = query(
-        collection(db, "StudentResultJoin"),
-        where("email", "==", email)
+      // Query for ALL student progress across all rooms
+      const allProgressQuery = query(
+        collection(db, "StudentProgress"),
+        where("userId", "==", user.uid)
       );
       
-      const snap = await getDocs(q);
+      const allProgressSnap = await getDocs(allProgressQuery);
       
       // Calculate macro level progress
       const currentMacroProgress = macroLevelProgress[currentMacroLevel] || {
@@ -105,6 +105,73 @@ export default function PersonalProgress({ navigation }: any) {
       const wordsCompleted = currentMacroProgress.words?.scores?.length || 0;
       const sentencesCompleted = currentMacroProgress.sentences?.scores?.length || 0;
       const paragraphsCompleted = currentMacroProgress.paragraphs?.scores?.length || 0;
+
+      // Calculate correct/incorrect from ALL rooms
+      let totalCorrect = 0;
+      let totalIncorrect = 0;
+      let allScoresAcrossRooms: number[] = [];
+      
+      allProgressSnap.forEach((doc) => {
+        const data = doc.data();
+        
+        // Count from macro level progress
+        if (data.macroLevelProgress) {
+          Object.values(data.macroLevelProgress).forEach((macroLevel: any) => {
+            if (macroLevel.words?.scores) {
+              macroLevel.words.scores.forEach((score: number) => {
+                allScoresAcrossRooms.push(score);
+                if (score >= 70) totalCorrect++;
+                else totalIncorrect++;
+              });
+            }
+            if (macroLevel.sentences?.scores) {
+              macroLevel.sentences.scores.forEach((score: number) => {
+                allScoresAcrossRooms.push(score);
+                if (score >= 70) totalCorrect++;
+                else totalIncorrect++;
+              });
+            }
+            if (macroLevel.paragraphs?.scores) {
+              macroLevel.paragraphs.scores.forEach((score: number) => {
+                allScoresAcrossRooms.push(score);
+                if (score >= 70) totalCorrect++;
+                else totalIncorrect++;
+              });
+            }
+          });
+        }
+        
+        // Also count from legacy scores/scoresArray
+        if (data.scores && Array.isArray(data.scores)) {
+          data.scores.forEach((score: number) => {
+            allScoresAcrossRooms.push(score);
+            if (score >= 70) totalCorrect++;
+            else totalIncorrect++;
+          });
+        }
+        if (data.scoresArray && Array.isArray(data.scoresArray)) {
+          data.scoresArray.forEach((score: number) => {
+            allScoresAcrossRooms.push(score);
+            if (score >= 70) totalCorrect++;
+            else totalIncorrect++;
+          });
+        }
+      });
+
+      const totalAttempts = totalCorrect + totalIncorrect;
+      
+      // Calculate average score from all rooms
+      const averageScore = allScoresAcrossRooms.length > 0 
+        ? allScoresAcrossRooms.reduce((a, b) => a + b, 0) / allScoresAcrossRooms.length 
+        : 0;
+      const perfectScores = allScoresAcrossRooms.filter(score => score >= 95).length;
+      
+      // Calculate improvement rate from recent vs older scores across all rooms
+      const recentScores = allScoresAcrossRooms.slice(0, 10);
+      const olderScores = allScoresAcrossRooms.slice(10, 20);
+      const recentAvg = recentScores.length > 0 ? recentScores.reduce((a, b) => a + b, 0) / recentScores.length : 0;
+      const olderAvg = olderScores.length > 0 ? olderScores.reduce((a, b) => a + b, 0) / olderScores.length : recentAvg;
+      const improvementRate = olderScores.length > 0 ? ((recentAvg - olderAvg) / olderAvg) * 100 : 0;
 
       // Calculate if user can advance (70% average score across all completed challenges)
       const allScores = [
@@ -120,53 +187,15 @@ export default function PersonalProgress({ navigation }: any) {
         currentMacroProgress.sentences?.completed && 
         currentMacroProgress.paragraphs?.completed;
 
-      if (snap.empty) {
-        // Even if no practice results, show current levels from StudentProgress
-        setStats({
-          totalAttempts: 0,
-          averageScore: 0,
-          perfectScores: 0,
-          improvementRate: 0,
-          readerLevel: currentReaderLevel,
-          macroLevel: currentMacroLevel,
-          macroLevelProgress,
-          currentContentType,
-          wordsCompleted,
-          sentencesCompleted,
-          paragraphsCompleted,
-          canAdvanceToNextMacro
-        });
-        setHasProgress(true); // Show levels even with no attempts
+      // Check if user has any progress at all
+      if (allProgressSnap.empty || totalAttempts === 0) {
+        console.log("No practice progress found for user:", user.uid);
+        setHasProgress(false);
         setLoading(false);
         return;
       }
 
-      setHasProgress(true);
-      
-      // Get all results and sort by createdAt
-      const allResults = snap.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data() 
-      })).sort((a: any, b: any) => {
-        const aTime = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
-        const bTime = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
-        return bTime.getTime() - aTime.getTime();
-      });
-      
-      const scores = allResults.map((result: any) => result.score || 0);
-      
-      // Calculate stats
-      const totalAttempts = scores.length;
-      const averageScore = scores.reduce((a, b) => a + b, 0) / totalAttempts;
-      const perfectScores = scores.filter(score => score >= 95).length;
-      
-      // Get recent scores for improvement calculation
-      const recentScores = scores.slice(0, 10);
-      const olderScores = scores.slice(10, 20);
-      const recentAvg = recentScores.reduce((a, b) => a + b, 0) / recentScores.length;
-      const olderAvg = olderScores.length > 0 ? olderScores.reduce((a, b) => a + b, 0) / olderScores.length : recentAvg;
-      const improvementRate = olderScores.length > 0 ? ((recentAvg - olderAvg) / olderAvg) * 100 : 0;
-
+      // Set stats from ALL rooms
       setStats({
         totalAttempts,
         averageScore,
@@ -179,21 +208,12 @@ export default function PersonalProgress({ navigation }: any) {
         wordsCompleted,
         sentencesCompleted,
         paragraphsCompleted,
-        canAdvanceToNextMacro
+        canAdvanceToNextMacro,
+        totalCorrect,
+        totalIncorrect
       });
 
-      console.log("Final stats object:", {
-        totalAttempts,
-        averageScore,
-        perfectScores,
-        improvementRate,
-        readerLevel: currentReaderLevel,
-        macroLevel: currentMacroLevel,
-        wordsCompleted,
-        sentencesCompleted,
-        paragraphsCompleted,
-        canAdvanceToNextMacro
-      });
+      setHasProgress(true);
       
     } catch (error) {
       console.error("Error fetching progress:", error);
@@ -206,8 +226,15 @@ export default function PersonalProgress({ navigation }: any) {
   const handleStartPractice = () => {
     if (!user) return;
     
-    // Navigate to the dedicated personal practice room
-    navigation.navigate('PersonalPracticeRoom');
+    // Navigate directly to personal practice room
+    navigation.navigate('PronunciationRoom', {
+      roomData: {
+        isPersonalRoom: true,
+        roomCode: 'PERSONAL_PRACTICE',
+        roomName: 'Personal Practice Room'
+      },
+      fromPersonalProgress: true
+    });
   };
 
   const handleGoBack = () => {
@@ -310,6 +337,35 @@ export default function PersonalProgress({ navigation }: any) {
           {stats && (
             <>
               {console.log("Rendering stats in component:", stats)}
+              
+              {/* Practice Statistics Card */}
+              <View style={styles.statsCard}>
+                <Text style={styles.statsTitle}>Overall Practice Statistics</Text>
+                <Text style={styles.statsSubtitle}>Across all rooms and practice sessions</Text>
+                <View style={styles.statsRow}>
+                  <View style={styles.statItemBox}>
+                    <Ionicons name="checkmark-circle" size={40} color="#52c41a" />
+                    <Text style={styles.statItemNumber}>{stats.totalCorrect}</Text>
+                    <Text style={styles.statItemLabel}>Correct</Text>
+                  </View>
+                  <View style={styles.statItemBox}>
+                    <Ionicons name="close-circle" size={40} color="#f5222d" />
+                    <Text style={styles.statItemNumber}>{stats.totalIncorrect}</Text>
+                    <Text style={styles.statItemLabel}>Incorrect</Text>
+                  </View>
+                  <View style={styles.statItemBox}>
+                    <Ionicons name="bar-chart" size={40} color="#1890ff" />
+                    <Text style={styles.statItemNumber}>{stats.totalCorrect + stats.totalIncorrect}</Text>
+                    <Text style={styles.statItemLabel}>Total</Text>
+                  </View>
+                </View>
+                {(stats.totalCorrect + stats.totalIncorrect) === 0 && (
+                  <Text style={styles.noDataText}>
+                    Start practicing to see your statistics!
+                  </Text>
+                )}
+              </View>
+
               {/* Levels Section */}
               <View style={styles.levelsContainer}>
                 {/* Reader Level Card */}
@@ -369,79 +425,6 @@ export default function PersonalProgress({ navigation }: any) {
                   <Text style={styles.statNumber}>{Math.round(stats.averageScore)}%</Text>
                   <Text style={styles.statLabel}>Average Score</Text>
                 </View>
-              </View>
-
-              {/* Macro Level Challenge Progress */}
-              <View style={styles.challengeSection}>
-                <Text style={styles.sectionTitle}>Current Macro Level Challenges</Text>
-                <Text style={styles.sectionSubtitle}>Complete all 3 challenges (10 items each) to advance</Text>
-                
-                {/* Words Challenge */}
-                <View style={styles.challengeCard}>
-                  <View style={styles.challengeHeader}>
-                    <View style={styles.challengeIconContainer}>
-                      <Ionicons name="text" size={24} color="#4ECDC4" />
-                    </View>
-                    <View style={styles.challengeInfo}>
-                      <Text style={styles.challengeTitle}>Words Challenge</Text>
-                      <Text style={styles.challengeProgress}>{stats.wordsCompleted}/10 completed</Text>
-                    </View>
-                    {stats.macroLevelProgress?.[stats.macroLevel]?.words?.completed && (
-                      <Ionicons name="checkmark-circle" size={28} color="#34C759" />
-                    )}
-                  </View>
-                  <View style={styles.progressBarContainer}>
-                    <View style={[styles.progressBar, { width: `${(stats.wordsCompleted / 10) * 100}%`, backgroundColor: '#4ECDC4' }]} />
-                  </View>
-                </View>
-
-                {/* Sentences Challenge */}
-                <View style={styles.challengeCard}>
-                  <View style={styles.challengeHeader}>
-                    <View style={styles.challengeIconContainer}>
-                      <Ionicons name="list" size={24} color="#FF6B35" />
-                    </View>
-                    <View style={styles.challengeInfo}>
-                      <Text style={styles.challengeTitle}>Sentences Challenge</Text>
-                      <Text style={styles.challengeProgress}>{stats.sentencesCompleted}/10 completed</Text>
-                    </View>
-                    {stats.macroLevelProgress?.[stats.macroLevel]?.sentences?.completed && (
-                      <Ionicons name="checkmark-circle" size={28} color="#34C759" />
-                    )}
-                  </View>
-                  <View style={styles.progressBarContainer}>
-                    <View style={[styles.progressBar, { width: `${(stats.sentencesCompleted / 10) * 100}%`, backgroundColor: '#FF6B35' }]} />
-                  </View>
-                </View>
-
-                {/* Paragraphs Challenge */}
-                <View style={styles.challengeCard}>
-                  <View style={styles.challengeHeader}>
-                    <View style={styles.challengeIconContainer}>
-                      <Ionicons name="document-text" size={24} color="#FFD700" />
-                    </View>
-                    <View style={styles.challengeInfo}>
-                      <Text style={styles.challengeTitle}>Paragraphs Challenge</Text>
-                      <Text style={styles.challengeProgress}>{stats.paragraphsCompleted}/10 completed</Text>
-                    </View>
-                    {stats.macroLevelProgress?.[stats.macroLevel]?.paragraphs?.completed && (
-                      <Ionicons name="checkmark-circle" size={28} color="#34C759" />
-                    )}
-                  </View>
-                  <View style={styles.progressBarContainer}>
-                    <View style={[styles.progressBar, { width: `${(stats.paragraphsCompleted / 10) * 100}%`, backgroundColor: '#FFD700' }]} />
-                  </View>
-                </View>
-
-                {/* Advancement Status */}
-                {stats.canAdvanceToNextMacro && (
-                  <View style={styles.advancementBanner}>
-                    <Ionicons name="trophy" size={24} color="#FFD700" />
-                    <Text style={styles.advancementText}>
-                      Ready to advance! Complete the practice to move to the next level.
-                    </Text>
-                  </View>
-                )}
               </View>
 
               {/* Action Button */}
@@ -549,6 +532,61 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  statsCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  statsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.black,
+    marginBottom: 4,
+    textAlign: 'center',
+    fontFamily: getFontFamily('bold'),
+  },
+  statsSubtitle: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 12,
+    textAlign: 'center',
+    fontFamily: getFontFamily('regular'),
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  statItemBox: {
+    alignItems: 'center',
+    minWidth: '30%',
+  },
+  statItemNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: COLORS.black,
+    marginTop: 8,
+    fontFamily: getFontFamily('bold'),
+  },
+  statItemLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+    fontFamily: getFontFamily('regular'),
+  },
+  noDataText: {
+    textAlign: 'center',
+    color: '#999',
+    fontSize: 14,
+    marginTop: 12,
+    fontStyle: 'italic',
+    fontFamily: getFontFamily('regular'),
   },
   title: {
     fontSize: 28,

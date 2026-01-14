@@ -12,6 +12,3 @@ export type { AssessmentPhase, AssessmentResult } from '../hooks/usePronunciatio
 export { audioRecordingService } from '../services/audioRecording';
 export { speechRecognitionService } from '../services/speechRecognition';
 export type { TranscriptionResult } from '../services/speechRecognition';
-
-// Screens
-export { default as PronunciationGameModular } from '../screens/student/PronunciationGameModular';

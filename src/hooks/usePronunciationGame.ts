@@ -90,6 +90,18 @@ export function usePronunciationGame({ onComplete }: UsePronunciationGameProps =
         return;
       }
 
+      // Check if no audio was detected (empty transcript)
+      if (!transcriptionResult.text || transcriptionResult.text.trim() === '') {
+        Alert.alert(
+          'No Audio Detected', 
+          'We couldn\'t detect any audio. Please try again and speak clearly into the microphone.',
+          [{ text: 'Try Again', style: 'default' }]
+        );
+        setIsProcessing(false);
+        setAssessmentPhase('progress');
+        return;
+      }
+
       // Calculate accuracy
       const accuracy = currentItem.keyWords 
         ? speechRecognitionService.getKeyWordAccuracy(

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,22 +8,112 @@ import {
   Alert,
   SafeAreaView,
   StatusBar,
+  ScrollView,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
-import { db } from "../../services/firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { db, auth } from "../../services/firebase";
+import { collection, query, where, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
 import RoomSelectionModal from "../../components/RoomSelectionModal";
 import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator } from "react-native";
 import { COLORS, GRADIENTS } from "../../constants/theme";
 import { getFontFamily } from "../../../styles/fonts";
 
+interface JoinedRoom {
+  id: string;
+  code: string;
+  name: string;
+  teacherId: string;
+}
+
 export default function Join() {
   const navigation = useNavigation<any>();
   const [roomsVisible, setRoomsVisible] = useState(false);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [recentRooms, setRecentRooms] = useState<JoinedRoom[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(true);
+
+  useEffect(() => {
+    loadRecentRooms();
+  }, []);
+
+  const loadRecentRooms = async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        setLoadingRecent(false);
+        return;
+      }
+
+      const joinedCodes = new Set<string>();
+
+      // Check JoinedRooms collection
+      const userDocRef = doc(db, "JoinedRooms", user.uid);
+      const userDoc = await getDoc(userDocRef);
+      
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        (data.roomCodes || []).forEach((code: string) => joinedCodes.add(code));
+      }
+
+      // Also check StudentProgress collection
+      const progressQuery = query(
+        collection(db, "StudentProgress"),
+        where("userId", "==", user.uid)
+      );
+      const progressSnapshot = await getDocs(progressQuery);
+      
+      progressSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.roomCode) {
+          joinedCodes.add(data.roomCode);
+        }
+      });
+
+      // Fetch room details for joined rooms
+      if (joinedCodes.size > 0) {
+        const roomsQuery = query(
+          collection(db, "GenerateRoom"),
+          where("roomCode", "in", Array.from(joinedCodes).slice(0, 10))
+        );
+        const roomsSnapshot = await getDocs(roomsQuery);
+        
+        const rooms: JoinedRoom[] = roomsSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            code: data.roomCode || '',
+            name: data.roomName || 'Unnamed Room',
+            teacherId: data.createdBy || ''
+          };
+        });
+        
+        setRecentRooms(rooms);
+      }
+    } catch (error) {
+      console.error("Error loading recent rooms:", error);
+    } finally {
+      setLoadingRecent(false);
+    }
+  };
+
+  const handleRoomPress = (room: JoinedRoom) => {
+    navigation.replace("PronunciationRoom", {
+      roomData: {
+        roomCode: room.code,
+        roomID: room.id,
+        roomName: room.name,
+        name: "",
+        playername: "",
+        email: "",
+        difficulty: "easy",
+        teacherId: room.teacherId,
+        createdBy: room.teacherId,
+      },
+    });
+  };
 
   const handleEnter = async () => {
     const trimmedCode = code.trim();
@@ -108,9 +198,14 @@ export default function Join() {
         </View>
 
         {/* Main Content */}
-        <View style={styles.content}>
-          <View style={styles.titleSection}>
-            <Text style={styles.title}>Join a Room</Text>
+        <ScrollView 
+          style={styles.scrollContent}
+          contentContainerStyle={styles.scrollContentContainer}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.content}>
+            <View style={styles.titleSection}>
+              <Text style={styles.title}>Join a Room</Text>
             <Text style={styles.subtitle}>
               Enter the room code provided by your teacher
             </Text>
@@ -145,6 +240,37 @@ export default function Join() {
           </View>
         </View>
 
+        {/* Recently Joined Rooms Section */}
+          {!loadingRecent && recentRooms.length > 0 && (
+            <View style={styles.recentSection}>
+              <View style={styles.recentHeader}>
+                <Ionicons name="time-outline" size={20} color={COLORS.white} />
+                <Text style={styles.recentTitle}>Recently Joined Rooms</Text>
+              </View>
+              
+              <View style={styles.recentRoomsList}>
+                {recentRooms.map((room) => (
+                  <TouchableOpacity
+                    key={room.id}
+                    style={styles.recentRoomItem}
+                    onPress={() => handleRoomPress(room)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.recentRoomIcon}>
+                      <Ionicons name="bookmark" size={20} color={COLORS.primary} />
+                    </View>
+                    <View style={styles.recentRoomInfo}>
+                      <Text style={styles.recentRoomName}>{room.name}</Text>
+                      <Text style={styles.recentRoomCode}>Code: {room.code}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="rgba(255, 255, 255, 0.6)" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+        </ScrollView>
+
         {/* Room List Modal */}
         <RoomSelectionModal visible={roomsVisible} onClose={() => setRoomsVisible(false)} />
         
@@ -159,12 +285,19 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  scrollContent: {
+    flex: 1,
+  },
+  scrollContentContainer: {
     paddingHorizontal: 20,
+    paddingBottom: 40,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 20,
   },
@@ -204,9 +337,58 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily('medium'),
     marginLeft: 8,
   },
-  content: {
-    flex: 1,
+  recentSection: {
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  recentHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 15,
+    gap: 8,
+  },
+  recentTitle: {
+    fontSize: 18,
+    color: COLORS.white,
+    fontFamily: getFontFamily('semibold'),
+  },
+  recentRoomsList: {
+    gap: 10,
+  },
+  recentRoomItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+  },
+  recentRoomIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.white,
+    alignItems: "center",
     justifyContent: "center",
+    marginRight: 12,
+  },
+  recentRoomInfo: {
+    flex: 1,
+  },
+  recentRoomName: {
+    fontSize: 16,
+    color: COLORS.white,
+    fontFamily: getFontFamily('semibold'),
+    marginBottom: 4,
+  },
+  recentRoomCode: {
+    fontSize: 13,
+    color: "rgba(255, 255, 255, 0.7)",
+    fontFamily: getFontFamily('regular'),
+  },
+  content: {
+    paddingVertical: 20,
     alignItems: "center",
   },
   titleSection: {

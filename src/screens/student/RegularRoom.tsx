@@ -9,6 +9,7 @@ import {
   Alert,
   SafeAreaView,
   StatusBar,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -78,6 +79,7 @@ export default function RegularRoom({ route }: any) {
     "easy" | "medium" | "hard"
   >("easy");
   const [streakCount, setStreakCount] = useState(0);
+  const [showStatsModal, setShowStatsModal] = useState(false);
 
 type ContentType = 'words' | 'sentences' | 'paragraphs';
 
@@ -174,13 +176,21 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   // 🔹 Load content for current macro level and content type
   const loadMacroLevelContent = (readerLevel: 1 | 2 | 3 | 4, macroLevel: 1 | 2 | 3 | 4, contentType: 'words' | 'sentences' | 'paragraphs') => {
     const readerLevelContent = GAME_CONTENT[`reader-level-${readerLevel}`];
-    if (!readerLevelContent) return [];
+    if (!readerLevelContent) {
+      console.log(`❌ No content for reader-level-${readerLevel}`);
+      return [];
+    }
 
     const macroLevelContent = readerLevelContent.macroLevels[`macroLevel${macroLevel}` as keyof typeof readerLevelContent.macroLevels];
-    if (!macroLevelContent) return [];
+    if (!macroLevelContent) {
+      console.log(`❌ No macroLevel${macroLevel} content`);
+      return [];
+    }
 
     // Return exactly 10 items for each content type (words, sentences, paragraphs)
-    return macroLevelContent[contentType].slice(0, 10).map(item => item.content);
+    const content = macroLevelContent[contentType].slice(0, 10).map(item => item.content);
+    console.log(`📚 Loaded ${content.length} ${contentType} for Reader Level ${readerLevel}, Macro Level ${macroLevel}`);
+    return content;
   };
 
   // 🔹 Calculate macro level completion score
@@ -223,6 +233,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
 
     // Move to next content type or complete macro level
     if (currentContentType === 'words') {
+      console.log(`🔄 Transitioning from words to sentences - Reader Level ${studentLevel}, Macro Level ${currentMacroLevel}`);
       setCurrentContentType('sentences');
       setCurrentIndex(0);
       setScoresArray([]);
@@ -231,6 +242,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       setScore(null);
       setCompleted(false);
       const sentenceContent = loadMacroLevelContent(studentLevel, currentMacroLevel as 1 | 2 | 3 | 4, 'sentences');
+      console.log(`✅ Sentence content loaded, length: ${sentenceContent.length}`);
       setWords(sentenceContent);
       
       // Save progress immediately after transitioning to sentences
@@ -687,7 +699,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             setIsAssessment(false);
             setUsingStarter(false);
             setStudentLevel(data.studentLevel);
-            setAssessmentPhase('results');
+            // Don't set assessmentPhase - we're going straight to practice
             
             // Restore progress state
             if (data.currentWordIndex !== undefined) {
@@ -1071,22 +1083,23 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
               setAssessmentResults(prev => [...prev, newResult]);
             }
           } else {
-            // Normal room scoring
+            // Normal room scoringopooop
             setScoresArray((prev) => [...prev, finalScore]);
             adjustDifficulty(finalScore);
             // Save after score is properly set
             setTimeout(() => saveProgress(), 100);
           }
         } else {
-          // Handle empty transcript - still allow user to proceed with low score
-          console.log('⚠️ Empty transcript - allowing user to proceed with 0 score');
-          setScore(0);
-          setCompleted(true);
-          
-          if (!isAssessment) {
-            setScoresArray((prev) => [...prev, 0]);
-            setTimeout(() => saveProgress(), 100);
-          }
+          // Handle empty transcript - prompt user to try again instead of accepting 0 score
+          console.log('⚠️ Empty transcript - prompting user to try again');
+          Alert.alert(
+            "No Audio Detected", 
+            "We couldn't detect any audio. Please try again and speak clearly into the microphone.",
+            [{ text: "Try Again", style: "default" }]
+          );
+          setScore(null);
+          setCompleted(false);
+          // Don't save progress or add to scores array
         }
       } else {
         Alert.alert("Error", "Failed to get recording. Please try again.");
@@ -1270,6 +1283,99 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     setCurrentIndex(0);
   };
 
+  // 🔹 Calculate diagnostic statistics
+  const calculateDiagnosticStats = () => {
+    let totalCorrect = 0;
+    let totalIncorrect = 0;
+    let totalScore = 0;
+    let totalAttempts = 0;
+
+    // Aggregate from macro level progress
+    Object.values(macroLevelProgress).forEach((macroLevel: any) => {
+      ['words', 'sentences', 'paragraphs'].forEach((type) => {
+        if (macroLevel[type]?.scores) {
+          macroLevel[type].scores.forEach((score: number) => {
+            totalAttempts++;
+            totalScore += score;
+            if (score >= 70) totalCorrect++;
+            else totalIncorrect++;
+          });
+        }
+      });
+    });
+
+    const averageScore = totalAttempts > 0 ? Math.round(totalScore / totalAttempts) : 0;
+    const accuracyRate = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
+
+    // Generate detailed diagnostic recommendation based on performance
+    let recommendation = '';
+    
+    if (totalAttempts === 0) {
+      recommendation = 'Start practicing to receive personalized recommendations! Complete a few words, sentences, and paragraphs to get detailed feedback on your pronunciation.';
+    } else if (averageScore >= 90) {
+      recommendation = `Outstanding performance! Your accuracy rate of ${accuracyRate}% shows excellent pronunciation skills. You've correctly pronounced ${totalCorrect} out of ${totalAttempts} items. Consider advancing to the next reader level for more challenging content to continue your growth.`;
+    } else if (averageScore >= 80) {
+      recommendation = `Great work! You're showing strong pronunciation skills with ${accuracyRate}% accuracy (${totalCorrect} correct out of ${totalAttempts}). To reach the next level:\n\n• Focus on clarity and enunciation for the ${totalIncorrect} items you missed\n• Practice at a steady pace - not too fast, not too slow\n• Continue building confidence with current content before advancing`;
+    } else if (averageScore >= 70) {
+      recommendation = `Good progress! You're on the right track with ${accuracyRate}% accuracy (${totalCorrect} correct, ${totalIncorrect} incorrect). Areas to improve:\n\n• Pronunciation Clarity: Focus on clear articulation of each word\n• Pacing: Speak at a comfortable speed that allows for proper enunciation\n• Practice: Review challenging words before recording\n• Confidence: Take your time and speak with confidence`;
+    } else if (averageScore >= 50) {
+      recommendation = `Keep practicing! Your current accuracy is ${accuracyRate}% (${totalCorrect} correct, ${totalIncorrect} incorrect). Here's how to improve:\n\n• Slow Down: Take time to pronounce each word clearly\n• Listen First: Read the content aloud before recording\n• Articulation: Focus on moving your lips and tongue properly\n• Environment: Practice in a quiet space for better recognition\n• Repetition: Practice difficult words multiple times`;
+    } else {
+      recommendation = `More practice needed! Current accuracy: ${accuracyRate}% (${totalCorrect} correct, ${totalIncorrect} incorrect). Focus on these fundamentals:\n\n• Read Slowly: Take 2-3 seconds per word\n• Enunciate Clearly: Exaggerate mouth movements\n• Quiet Environment: Ensure minimal background noise\n• Pre-Reading: Practice reading aloud before recording\n• Break It Down: Focus on one word at a time\n• Phonetics: Pay attention to beginning and ending sounds\n\nConsider reviewing the content multiple times before attempting to record. You're building important skills!`;
+    }
+
+    return {
+      totalCorrect,
+      totalIncorrect,
+      totalAttempts,
+      averageScore,
+      recommendation
+    };
+  };
+
+  // 🔹 Get word color based on recognition result
+  const getWordColor = () => {
+    if (!completed || score === null) return COLORS.white;
+    
+    if (currentContentType === 'words') {
+      // For single words, green if score >= 70%, red otherwise
+      return score >= 70 ? '#4CAF50' : '#FF5722';
+    }
+    
+    // For sentences/paragraphs, return white (we'll handle per-word coloring differently)
+    return COLORS.white;
+  };
+
+  // 🔹 Render colored words for sentences/paragraphs
+  const renderColoredWords = () => {
+    if (!completed || !recognizedText || !currentWord) {
+      return currentWord || "Content not available";
+    }
+
+    // For single words, just return the word (color handled by getWordColor)
+    if (currentContentType === 'words') {
+      return currentWord;
+    }
+
+    // For sentences/paragraphs, split and color each word
+    const expected = currentWord.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w);
+    const recognized = recognizedText.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w);
+    const originalWords = currentWord.split(/\s+/);
+
+    return originalWords.map((word, index) => {
+      const cleanWord = word.toLowerCase().replace(/[^\w\s]/g, '');
+      const isCorrect = recognized.includes(cleanWord);
+      return (
+        <Text 
+          key={index} 
+          style={{ color: isCorrect ? '#4CAF50' : '#FF5722' }}
+        >
+          {word}{' '}
+        </Text>
+      );
+    });
+  };
+
   return (
     <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
@@ -1305,32 +1411,23 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                   : `Room ${roomData.roomName}` || "Pronunciation Room"
               }
             </Text>
-            <Text style={styles.headerSubtitle}>
-              {isAssessment && assessmentPhase === 'testing'
-                ? `Start speaking to determine your level`
-                : isAssessment && assessmentPhase === 'results'
-                  ? `Your level: ${studentLevel}`
-                  : isAssessment && assessmentPhase === 'intro'
-                    ? "Get ready to discover your pronunciation level"
-                    : isPersonalRoom
-                      ? `Reader Level ${studentLevel} • Macro ${currentMacroLevel} • ${currentContentType.charAt(0).toUpperCase() + currentContentType.slice(1)} ${currentIndex + 1}/${words.length}`
-                      : `Reader Level ${studentLevel} • Macro ${currentMacroLevel} • ${currentContentType.charAt(0).toUpperCase() + currentContentType.slice(1)} ${currentIndex + 1}/${words.length}`
-              }
-            </Text>
           </View>
           {!isAssessment && (
-            <View style={[
-              styles.readerLevelBadge,
-              { 
-                backgroundColor: getReaderLevelColor(studentLevel),
-                borderColor: getReaderLevelColor(studentLevel, true)
-              }
-            ]}>
+            <TouchableOpacity 
+              style={[
+                styles.readerLevelBadge,
+                { 
+                  backgroundColor: getReaderLevelColor(studentLevel),
+                  borderColor: getReaderLevelColor(studentLevel, true)
+                }
+              ]}
+              onPress={() => setShowStatsModal(true)}
+            >
               <Ionicons name="library-outline" size={12} color={COLORS.white} style={{ marginRight: 4 }} />
               <Text style={styles.readerLevelText}>
                 LEVEL {studentLevel}
               </Text>
-            </View>
+            </TouchableOpacity>
           )}
         </View>
 
@@ -1601,9 +1698,10 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                   styles.word,
                   currentAssessmentItem?.type === 'passage' && styles.passageText,
                   currentContentType === 'sentences' && styles.sentenceText,
-                  currentContentType === 'paragraphs' && styles.paragraphText
+                  currentContentType === 'paragraphs' && styles.paragraphText,
+                  { color: getWordColor() }
                 ]}>
-                  {isContentLoading ? "Loading content..." : (currentWord || "Content not available")}
+                  {isContentLoading ? "Loading content..." : renderColoredWords()}
                 </Text>
               </ScrollView>
             </View>
@@ -1745,6 +1843,90 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         )}
         </>
         )}
+
+        {/* Diagnostic Stats Modal */}
+        <Modal
+          visible={showStatsModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowStatsModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Diagnostic Report</Text>
+                <TouchableOpacity onPress={() => setShowStatsModal(false)}>
+                  <Ionicons name="close" size={24} color={COLORS.black} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalBody}>
+                {/* Reader Level Badge */}
+                <View style={styles.modalLevelBadge}>
+                  <View style={[
+                    styles.modalLevelCircle,
+                    { backgroundColor: getReaderLevelColor(studentLevel) }
+                  ]}>
+                    <Text style={styles.modalLevelNumber}>{studentLevel}</Text>
+                  </View>
+                  <Text style={styles.modalLevelText}>Reader Level {studentLevel}</Text>
+                </View>
+
+                {/* Diagnostic Recommendation */}
+                <View style={styles.statsSection}>
+                  <View style={styles.statsSectionHeader}>
+                    <Ionicons name="medical" size={20} color={COLORS.primary} />
+                    <Text style={styles.statsSectionTitle}>Diagnostic Recommendation</Text>
+                  </View>
+                  <Text style={styles.recommendationText}>
+                    {calculateDiagnosticStats().recommendation}
+                  </Text>
+                </View>
+
+                {/* Performance Stats */}
+                <View style={styles.statsSection}>
+                  <View style={styles.statsSectionHeader}>
+                    <Ionicons name="stats-chart" size={20} color={COLORS.primary} />
+                    <Text style={styles.statsSectionTitle}>Performance Statistics</Text>
+                  </View>
+                  
+                  <View style={styles.statsGrid}>
+                    <View style={styles.statCard}>
+                      <Ionicons name="checkmark-circle" size={32} color="#52c41a" />
+                      <Text style={styles.statValue}>{calculateDiagnosticStats().totalCorrect}</Text>
+                      <Text style={styles.statLabel}>Correct Words</Text>
+                    </View>
+                    <View style={styles.statCard}>
+                      <Ionicons name="close-circle" size={32} color="#f5222d" />
+                      <Text style={styles.statValue}>{calculateDiagnosticStats().totalIncorrect}</Text>
+                      <Text style={styles.statLabel}>Incorrect Words</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.statsGrid}>
+                    <View style={styles.statCard}>
+                      <Ionicons name="list" size={32} color="#1890ff" />
+                      <Text style={styles.statValue}>{calculateDiagnosticStats().totalAttempts}</Text>
+                      <Text style={styles.statLabel}>Total Pronounced</Text>
+                    </View>
+                    <View style={styles.statCard}>
+                      <Ionicons name="trophy" size={32} color="#faad14" />
+                      <Text style={styles.statValue}>{calculateDiagnosticStats().averageScore}%</Text>
+                      <Text style={styles.statLabel}>Average Score</Text>
+                    </View>
+                  </View>
+                </View>
+              </ScrollView>
+
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => setShowStatsModal(false)}
+              >
+                <Text style={styles.modalCloseButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -2326,14 +2508,32 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     borderWidth: 2,
     borderColor: "rgba(255, 255, 255, 0.5)",
+    alignItems: "center",
   },
-  contentTypeDotCompleted: {
-    backgroundColor: "#4CAF50",
-    borderColor: "#4CAF50",
+  // Colored text styles
+  coloredTextContainer: {
+    width: "100%",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 12,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    alignItems: "center",
   },
-  contentTypeDotActive: {
-    backgroundColor: "#2196F3",
-    borderColor: "#2196F3",
+  coloredTextWords: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+  },
+  coloredWord: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: "600",
+    fontFamily: getFontFamily('semibold'),
+  },
+  singleWord: {
+    fontSize: FONT_SIZES['3xl'],
+    fontWeight: "700",
+    fontFamily: getFontFamily('bold'),
+    textAlign: "center",
   },
   contentTypeDotPending: {
     backgroundColor: "transparent",
@@ -2366,5 +2566,130 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: SPACING.md,
     width: "100%",
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.lg,
+  },
+  modalContent: {
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: SPACING.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e8e8e8',
+  },
+  modalTitle: {
+    fontSize: FONT_SIZES['2xl'],
+    fontWeight: 'bold',
+    fontFamily: getFontFamily('bold'),
+    color: COLORS.black,
+  },
+  modalBody: {
+    padding: SPACING.lg,
+  },
+  modalLevelBadge: {
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+    paddingVertical: SPACING.md,
+  },
+  modalLevelCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  modalLevelNumber: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    fontFamily: getFontFamily('bold'),
+    color: COLORS.white,
+  },
+  modalLevelText: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: '600',
+    fontFamily: getFontFamily('semibold'),
+    color: COLORS.black,
+  },
+  statsSection: {
+    marginBottom: SPACING.lg,
+  },
+  statsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.md,
+  },
+  statsSectionTitle: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: 'bold',
+    fontFamily: getFontFamily('bold'),
+    color: COLORS.black,
+    marginLeft: SPACING.sm,
+  },
+  recommendationText: {
+    fontSize: FONT_SIZES.base,
+    lineHeight: 22,
+    color: '#666',
+    fontFamily: getFontFamily('regular'),
+    backgroundColor: '#f8f9fa',
+    padding: SPACING.md,
+    borderRadius: 12,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    gap: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: SPACING.md,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: FONT_SIZES['2xl'],
+    fontWeight: 'bold',
+    fontFamily: getFontFamily('bold'),
+    color: COLORS.black,
+    marginTop: SPACING.sm,
+  },
+  statLabel: {
+    fontSize: FONT_SIZES.sm,
+    color: '#666',
+    fontFamily: getFontFamily('regular'),
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  modalCloseButton: {
+    backgroundColor: COLORS.primary,
+    margin: SPACING.lg,
+    padding: SPACING.md,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalCloseButtonText: {
+    color: COLORS.white,
+    fontSize: FONT_SIZES.lg,
+    fontWeight: '600',
+    fontFamily: getFontFamily('semibold'),
   },
 });

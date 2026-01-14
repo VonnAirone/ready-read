@@ -229,12 +229,7 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
               value={stats.completedAssessments}
               icon="clipboard-outline"
               color="#FF9800"
-            />
-            <DashboardCard
-              title="Avg Score"
-              value={`${stats.avgScore}%`}
-              icon="trophy-outline"
-              color="#9C27B0"
+              onPress={() => navigation.navigate('AssessmentResults')}
             />
           </View>
 
@@ -252,18 +247,6 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
               icon="settings-outline"
               color="#2196F3"
               onPress={() => navigation.navigate('Room')}
-            />
-            <QuickAction
-              title="View Analytics"
-              icon="analytics-outline"
-              color="#FF9800"
-              onPress={() => navigation.navigate('Leaderboard')}
-            />
-            <QuickAction
-              title="Content Library"
-              icon="library-outline"
-              color="#9C27B0"
-              onPress={() => navigation.navigate('Modify')}
             />
           </View>
 
