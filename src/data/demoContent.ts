@@ -62,16 +62,11 @@ export function populateGameContent() {
     GAME_CONTENT['reader-level-2'].macroLevels.macroLevel1.sentences = r2m1_sentences;
     GAME_CONTENT['reader-level-2'].macroLevels.macroLevel1.paragraphs = r2m1_paragraphs;
 
-    console.log('Game content populated successfully!');
     
     // Log sample content for verification
-    console.log('Sample Word:', GAME_CONTENT['reader-level-1'].macroLevels.macroLevel1.words[0]);
-    console.log('Sample Sentence:', GAME_CONTENT['reader-level-1'].macroLevels.macroLevel1.sentences[0]);
-    console.log('Sample Paragraph:', GAME_CONTENT['reader-level-1'].macroLevels.macroLevel1.paragraphs[0]);
     
     return true;
   } catch (error) {
-    console.error('Error populating game content:', error);
     return false;
   }
 }

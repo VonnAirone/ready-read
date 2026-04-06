@@ -6,16 +6,14 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  SafeAreaView,
-  StatusBar,
   ScrollView,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { db } from "../../services/firebase";
+import { auth, db } from "../../services/firebase";
 import { collection, query, where, getDocs, orderBy, doc, getDoc } from "firebase/firestore";
-import { onAuthStateChanged, getAuth } from "firebase/auth";
-import { COLORS, GRADIENTS } from "../../constants/theme";
+import { onAuthStateChanged } from "firebase/auth";
+import { COLORS } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
 import { READER_LEVEL_INFO, determineReaderLevel } from "../../data/assessmentData";
 
@@ -48,8 +46,6 @@ export default function PersonalProgress({ navigation }: any) {
   const [stats, setStats] = useState<ProgressStats | null>(null);
   const [hasProgress, setHasProgress] = useState(false);
 
-  const auth = getAuth();
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
@@ -63,7 +59,7 @@ export default function PersonalProgress({ navigation }: any) {
     return unsubscribe;
   }, []);
 
-  const fetchPersonalProgress = async (email: string) => {
+  const fetchPersonalProgress = async (_email: string | null) => {
     setLoading(true);
     try {
       // Get user's current progress from StudentProgress collection
@@ -92,55 +88,69 @@ export default function PersonalProgress({ navigation }: any) {
         collection(db, "StudentProgress"),
         where("userId", "==", user.uid)
       );
-      
-      const allProgressSnap = await getDocs(allProgressQuery);
-      
-      // Calculate macro level progress
-      const currentMacroProgress = macroLevelProgress[currentMacroLevel] || {
-        words: { completed: false, scores: [], totalScore: 0 },
-        sentences: { completed: false, scores: [], totalScore: 0 },
-        paragraphs: { completed: false, scores: [], totalScore: 0 }
-      };
 
-      const wordsCompleted = currentMacroProgress.words?.scores?.length || 0;
-      const sentencesCompleted = currentMacroProgress.sentences?.scores?.length || 0;
-      const paragraphsCompleted = currentMacroProgress.paragraphs?.scores?.length || 0;
+      const allProgressSnap = await getDocs(allProgressQuery);
+
+      // Calculate completed counts from new firstAttemptScores or old macroLevelProgress
+      let wordsCompleted = 0;
+      let sentencesCompleted = 0;
+      let paragraphsCompleted = 0;
+
+      if (progressDoc.exists()) {
+        const progressData = progressDoc.data();
+        if (progressData.firstAttemptScores) {
+          // New format: count from firstAttemptScores keys
+          const fas = progressData.firstAttemptScores as Record<string, number>;
+          Object.keys(fas).forEach(key => {
+            const level = parseInt(key);
+            if (level <= 10) wordsCompleted++;
+            else if (level <= 20) sentencesCompleted++;
+            else paragraphsCompleted++;
+          });
+        } else if (progressData.macroLevelProgress) {
+          // Legacy format
+          const currentMacroProgress = progressData.macroLevelProgress[currentMacroLevel] || {
+            words: { scores: [] }, sentences: { scores: [] }, paragraphs: { scores: [] }
+          };
+          wordsCompleted = currentMacroProgress.words?.scores?.length || 0;
+          sentencesCompleted = currentMacroProgress.sentences?.scores?.length || 0;
+          paragraphsCompleted = currentMacroProgress.paragraphs?.scores?.length || 0;
+        }
+      }
 
       // Calculate correct/incorrect from ALL rooms
       let totalCorrect = 0;
       let totalIncorrect = 0;
       let allScoresAcrossRooms: number[] = [];
-      
+
       allProgressSnap.forEach((doc) => {
         const data = doc.data();
-        
-        // Count from macro level progress
-        if (data.macroLevelProgress) {
-          Object.values(data.macroLevelProgress).forEach((macroLevel: any) => {
-            if (macroLevel.words?.scores) {
-              macroLevel.words.scores.forEach((score: number) => {
-                allScoresAcrossRooms.push(score);
-                if (score >= 70) totalCorrect++;
-                else totalIncorrect++;
-              });
-            }
-            if (macroLevel.sentences?.scores) {
-              macroLevel.sentences.scores.forEach((score: number) => {
-                allScoresAcrossRooms.push(score);
-                if (score >= 70) totalCorrect++;
-                else totalIncorrect++;
-              });
-            }
-            if (macroLevel.paragraphs?.scores) {
-              macroLevel.paragraphs.scores.forEach((score: number) => {
-                allScoresAcrossRooms.push(score);
-                if (score >= 70) totalCorrect++;
-                else totalIncorrect++;
-              });
-            }
+
+        // New format: firstAttemptScores
+        if (data.firstAttemptScores) {
+          Object.values(data.firstAttemptScores).forEach((score: any) => {
+            const s = Number(score);
+            allScoresAcrossRooms.push(s);
+            if (s >= 70) totalCorrect++;
+            else totalIncorrect++;
           });
         }
-        
+
+        // Legacy format: macroLevelProgress
+        if (data.macroLevelProgress) {
+          Object.values(data.macroLevelProgress).forEach((macroLevel: any) => {
+            ['words', 'sentences', 'paragraphs'].forEach(type => {
+              if (macroLevel[type]?.scores) {
+                macroLevel[type].scores.forEach((score: number) => {
+                  allScoresAcrossRooms.push(score);
+                  if (score >= 70) totalCorrect++;
+                  else totalIncorrect++;
+                });
+              }
+            });
+          });
+        }
+
         // Also count from legacy scores/scoresArray
         if (data.scores && Array.isArray(data.scores)) {
           data.scores.forEach((score: number) => {
@@ -159,13 +169,13 @@ export default function PersonalProgress({ navigation }: any) {
       });
 
       const totalAttempts = totalCorrect + totalIncorrect;
-      
+
       // Calculate average score from all rooms
-      const averageScore = allScoresAcrossRooms.length > 0 
-        ? allScoresAcrossRooms.reduce((a, b) => a + b, 0) / allScoresAcrossRooms.length 
+      const averageScore = allScoresAcrossRooms.length > 0
+        ? allScoresAcrossRooms.reduce((a, b) => a + b, 0) / allScoresAcrossRooms.length
         : 0;
       const perfectScores = allScoresAcrossRooms.filter(score => score >= 95).length;
-      
+
       // Calculate improvement rate from recent vs older scores across all rooms
       const recentScores = allScoresAcrossRooms.slice(0, 10);
       const olderScores = allScoresAcrossRooms.slice(10, 20);
@@ -173,23 +183,11 @@ export default function PersonalProgress({ navigation }: any) {
       const olderAvg = olderScores.length > 0 ? olderScores.reduce((a, b) => a + b, 0) / olderScores.length : recentAvg;
       const improvementRate = olderScores.length > 0 ? ((recentAvg - olderAvg) / olderAvg) * 100 : 0;
 
-      // Calculate if user can advance (70% average score across all completed challenges)
-      const allScores = [
-        ...(currentMacroProgress.words?.scores || []),
-        ...(currentMacroProgress.sentences?.scores || []),
-        ...(currentMacroProgress.paragraphs?.scores || [])
-      ];
-      const macroAvgScore = allScores.length > 0 
-        ? allScores.reduce((a, b) => a + b, 0) / allScores.length 
-        : 0;
-      const canAdvanceToNextMacro = macroAvgScore >= 70 && 
-        currentMacroProgress.words?.completed && 
-        currentMacroProgress.sentences?.completed && 
-        currentMacroProgress.paragraphs?.completed;
+      // Check if all 30 micro-levels completed for current macro level
+      const canAdvanceToNextMacro = wordsCompleted + sentencesCompleted + paragraphsCompleted >= 30;
 
       // Check if user has any progress at all
       if (allProgressSnap.empty || totalAttempts === 0) {
-        console.log("No practice progress found for user:", user.uid);
         setHasProgress(false);
         setLoading(false);
         return;
@@ -216,7 +214,6 @@ export default function PersonalProgress({ navigation }: any) {
       setHasProgress(true);
       
     } catch (error) {
-      console.error("Error fetching progress:", error);
       setHasProgress(false);
     } finally {
       setLoading(false);
@@ -227,14 +224,7 @@ export default function PersonalProgress({ navigation }: any) {
     if (!user) return;
     
     // Navigate directly to personal practice room
-    navigation.navigate('PronunciationRoom', {
-      roomData: {
-        isPersonalRoom: true,
-        roomCode: 'PERSONAL_PRACTICE',
-        roomName: 'Personal Practice Room'
-      },
-      fromPersonalProgress: true
-    });
+    navigation.navigate('PersonalPracticeRoom');
   };
 
   const handleGoBack = () => {
@@ -242,7 +232,6 @@ export default function PersonalProgress({ navigation }: any) {
   };
 
   const getReaderLevelColor = (level: 1 | 2 | 3 | 4) => {
-    console.log("Getting color for Reader Level:", level);
     switch (level) {
       case 1: return "#96CEB4";  // Light Green
       case 2: return "#FFEAA7";  // Light Yellow
@@ -253,7 +242,6 @@ export default function PersonalProgress({ navigation }: any) {
   };
 
   const getMacroLevelColor = (level: number) => {
-    console.log("Getting color for Macro Level:", level);
     // Color based on macro level ranges
     if (level >= 25) return "#FFD700";      // Gold
     if (level >= 20) return "#FF6B35";      // Orange
@@ -273,23 +261,18 @@ export default function PersonalProgress({ navigation }: any) {
 
   if (loading) {
     return (
-      <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={COLORS.white} />
-            <Text style={styles.loadingText}>Analyzing your progress...</Text>
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
+      <ScreenLayout>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.white} />
+          <Text style={styles.loadingText}>Analyzing your progress...</Text>
+        </View>
+      </ScreenLayout>
     );
   }
 
   if (!hasProgress) {
     return (
-      <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-        <SafeAreaView style={styles.safeArea}>
+      <ScreenLayout>
           <View style={styles.header}>
             <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
               <Ionicons name="arrow-back" size={20} color={COLORS.white} />
@@ -315,15 +298,12 @@ export default function PersonalProgress({ navigation }: any) {
               </TouchableOpacity>
             </View>
           </View>
-        </SafeAreaView>
-      </LinearGradient>
+        </ScreenLayout>
     );
   }
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         <View style={styles.header}>
           <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={20} color={COLORS.white} />
@@ -336,8 +316,6 @@ export default function PersonalProgress({ navigation }: any) {
           
           {stats && (
             <>
-              {console.log("Rendering stats in component:", stats)}
-              
               {/* Practice Statistics Card */}
               <View style={styles.statsCard}>
                 <Text style={styles.statsTitle}>Overall Practice Statistics</Text>
@@ -439,19 +417,11 @@ export default function PersonalProgress({ navigation }: any) {
             </>
           )}
         </ScrollView>
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
   header: {
     paddingTop: 20,
     paddingBottom: 10,

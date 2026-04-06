@@ -20,9 +20,9 @@ export const COLORS = {
 };
 
 export const GRADIENTS = {
-  primary: ['#8C52FF', '#543199'],
-  secondary: ['#007AFF', '#0051D5'],
-  accent: ['#8C52FF', '#B084FF'],
+  primary: ['#8C52FF', '#543199'] as [string, string],
+  secondary: ['#007AFF', '#0051D5'] as [string, string],
+  accent: ['#8C52FF', '#B084FF'] as [string, string],
 };
 
 export const FONT_SIZES = {
@@ -55,7 +55,3 @@ export const BORDER_RADIUS = {
   full: 9999,
 };
 
-export const ADMIN_CREDENTIALS = {
-  email: 'ADMIN',
-  password: 'ADMIN12345',
-};

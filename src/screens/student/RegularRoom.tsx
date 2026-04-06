@@ -1,14 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Platform,
   Alert,
-  SafeAreaView,
-  StatusBar,
   Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,39 +15,28 @@ import {
   doc,
   setDoc,
   getDoc,
-  collection,
-  query,
-  where,
-  onSnapshot,
   Timestamp,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
-import { GOOGLE_CLOUD_PROJECT_ID, GOOGLE_CLOUD_API_KEY } from "@env";
 import { Audio } from "expo-av";
+import * as Speech from "expo-speech";
 import { COLORS, GRADIENTS, FONT_SIZES, SPACING } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
 import { useNavigation } from "@react-navigation/native";
 
 import { calculateScore } from "../../services/scoring";
 
-import { 
-  GoogleSpeechService, 
-  initializeGoogleSpeech, 
-  getGoogleSpeechService 
-} from "../../services/googleSpeech";
+import { getAzureSpeechService, type AzureWordResult } from "../../services/azureSpeech";
 
-import { 
+import {
   ASSESSMENT_ITEMS,
-  ASSESSMENT_WORDS, 
-  STARTER_WORDS, 
-  ASSESSMENT_THRESHOLDS,
-  ASSESSMENT_CONFIG,
-  determineLevel,
+  STARTER_WORDS,
   determineReaderLevel,
-  type AssessmentItem 
+  type AssessmentItem
 } from "../../data/assessmentData";
 
-import { getSubLevelContent, GAME_CONTENT } from "../../data/gameContent";
+import { GAME_CONTENT } from "../../data/gameContent";
 
 export default function RegularRoom({ route }: any) {
   const { roomData, fromPersonalProgress = false } = route.params;
@@ -64,8 +50,10 @@ export default function RegularRoom({ route }: any) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [recognizedText, setRecognizedText] = useState("");
+  const [wordResults, setWordResults] = useState<AzureWordResult[]>([]);
   const [score, setScore] = useState<number | null>(null);
   const [completed, setCompleted] = useState(false);
+  const [attempts, setAttempts] = useState<number[]>([]);
   const [playerName, setPlayerName] = useState("Anonymous");
   const [userId, setUserId] = useState<string | null>(null);
   const [scoresArray, setScoresArray] = useState<number[]>([]);
@@ -134,7 +122,6 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   // Safety check: Load content if words array is empty
   useEffect(() => {
     if (words.length === 0 && !isAssessment) {
-      console.log('⚠️ No words available, loading fallback content');
       const fallbackWords = getReaderLevelWords(studentLevel);
       setWords(fallbackWords);
       setUsingStarter(fallbackWords === STARTER_WORDS);
@@ -177,36 +164,17 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   const loadMacroLevelContent = (readerLevel: 1 | 2 | 3 | 4, macroLevel: 1 | 2 | 3 | 4, contentType: 'words' | 'sentences' | 'paragraphs') => {
     const readerLevelContent = GAME_CONTENT[`reader-level-${readerLevel}`];
     if (!readerLevelContent) {
-      console.log(`❌ No content for reader-level-${readerLevel}`);
       return [];
     }
 
     const macroLevelContent = readerLevelContent.macroLevels[`macroLevel${macroLevel}` as keyof typeof readerLevelContent.macroLevels];
     if (!macroLevelContent) {
-      console.log(`❌ No macroLevel${macroLevel} content`);
       return [];
     }
 
     // Return exactly 10 items for each content type (words, sentences, paragraphs)
     const content = macroLevelContent[contentType].slice(0, 10).map(item => item.content);
-    console.log(`📚 Loaded ${content.length} ${contentType} for Reader Level ${readerLevel}, Macro Level ${macroLevel}`);
     return content;
-  };
-
-  // 🔹 Calculate macro level completion score
-  const calculateMacroLevelScore = () => {
-    const currentMacroProgress = macroLevelProgress[currentMacroLevel as keyof typeof macroLevelProgress];
-    const { words, sentences, paragraphs } = currentMacroProgress;
-    const totalItems = words.scores.length + sentences.scores.length + paragraphs.scores.length;
-    const totalScore = words.totalScore + sentences.totalScore + paragraphs.totalScore;
-    
-    return totalItems > 0 ? Math.round(totalScore / totalItems) : 0;
-  };
-
-  // 🔹 Determine if user should advance to next macro level
-  const shouldAdvanceToNextMacro = () => {
-    const avgScore = calculateMacroLevelScore();
-    return avgScore >= 70; // 70% threshold for advancement
   };
 
   // 🔹 Complete current content type and move to next
@@ -233,16 +201,15 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
 
     // Move to next content type or complete macro level
     if (currentContentType === 'words') {
-      console.log(`🔄 Transitioning from words to sentences - Reader Level ${studentLevel}, Macro Level ${currentMacroLevel}`);
       setCurrentContentType('sentences');
       setCurrentIndex(0);
       setScoresArray([]);
       // Reset UI state for new content type
       setRecognizedText("");
+        setWordResults([]);
       setScore(null);
       setCompleted(false);
       const sentenceContent = loadMacroLevelContent(studentLevel, currentMacroLevel as 1 | 2 | 3 | 4, 'sentences');
-      console.log(`✅ Sentence content loaded, length: ${sentenceContent.length}`);
       setWords(sentenceContent);
       
       // Save progress immediately after transitioning to sentences
@@ -280,7 +247,6 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           }
 
         } catch (error) {
-          console.error("Error saving progress after sentences transition:", error);
         }
       }
     } else if (currentContentType === 'sentences') {
@@ -289,6 +255,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       setScoresArray([]);
       // Reset UI state for new content type
       setRecognizedText("");
+        setWordResults([]);
       setScore(null);
       setCompleted(false);
       const paragraphContent = loadMacroLevelContent(studentLevel, currentMacroLevel as 1 | 2 | 3 | 4, 'paragraphs');
@@ -329,7 +296,6 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           }
 
         } catch (error) {
-          console.error("Error saving progress after paragraphs transition:", error);
         }
       }
     } else {
@@ -416,12 +382,10 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           await setDoc(doc(db, "StudentProgress", docId), saveData, { merge: true });
         }
         
-          console.log("✅ Database save complete");
         // Only NOW show the results after save is complete
         setPendingMacroResults(true);
         
       } catch (error) {
-        console.error("Error saving macro completion state:", error);
         // Still show results even if save fails
         setPendingMacroResults(true);
       }
@@ -468,9 +432,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             { merge: true }
           );
         }
-        console.log("✅ Cleared macro results flag immediately");
       } catch (error) {
-        console.error("❌ Error clearing macro results flag:", error);
       }
     }
     
@@ -494,6 +456,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       setWords(wordContent);
       // Reset UI state for new macro level
       setRecognizedText("");
+        setWordResults([]);
       setScore(null);
       setCompleted(false);
     } else {
@@ -514,6 +477,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       setWords(wordContent);
       // Reset UI state for repeat
       setRecognizedText("");
+        setWordResults([]);
       setScore(null);
       setCompleted(false);
     }
@@ -613,21 +577,11 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         setWords(wordContent);
       }
     } catch (error) {
-      console.error("Error setting up personal practice room:", error);
       setWords(STARTER_WORDS);
       setUsingStarter(true);
     }
   };
 
-  // Get practice words based on student level
-  const getPracticeWordsByLevel = (level: string) => {
-    const levelWords = {
-      beginner: ["cat", "sun", "book", "tree", "house", "water", "happy", "small"],
-      intermediate: ["beautiful", "computer", "important", "wonderful", "dangerous", "restaurant", "conversation", "government"],
-      advanced: ["pronunciation", "determination", "responsibility", "extraordinary", "communication", "understanding", "opportunity", "investigation"]
-    };
-    return levelWords[level as keyof typeof levelWords] || levelWords.beginner;
-  };
   const recordingRef = useRef<Audio.Recording | null>(null);
 
   // ✅ Safety check for currentIndex
@@ -758,7 +712,6 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           setCurrentIndex(0);
         }
       } catch (error) {
-        console.error("Error fetching progress:", error);
         setUsingStarter(true);
         setWords(STARTER_WORDS);
       } finally {
@@ -772,7 +725,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   useEffect(() => {
     return () => {
       if (recordingRef.current) {
-        recordingRef.current.stopAndUnloadAsync().catch(console.warn);
+        recordingRef.current.stopAndUnloadAsync().catch(() => {});
         recordingRef.current = null;
       }
     };
@@ -780,9 +733,9 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
 
   // ✅ Handle navigation away during recording
   useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+    const unsubscribe = navigation.addListener('beforeRemove', (_e: unknown) => {
       if (recordingRef.current) {
-        recordingRef.current.stopAndUnloadAsync().catch(console.warn);
+        recordingRef.current.stopAndUnloadAsync().catch(() => {});
         recordingRef.current = null;
       }
     });
@@ -847,17 +800,14 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     setIsContentLoading(true);
     setIsAssessment(false);
     
-    console.log(`🔄 Starting practice content for Reader Level ${studentLevel}`);
     
     // Always load content based on Reader Level from our 4-Level system
     const readerLevelContent = GAME_CONTENT[`reader-level-${studentLevel}`];
     
     if (readerLevelContent) {
-      console.log(`📚 Found Reader Level ${studentLevel} content structure`);
       
       // Start with Macro Level 1, Sub-level 1 (words)
       const macroLevel1 = readerLevelContent.macroLevels.macroLevel1;
-      console.log(`📖 Macro Level 1 has ${macroLevel1.words.length} words available`);
       
       const practiceWords = macroLevel1.words.slice(0, 10).map(item => item.content);
       
@@ -866,85 +816,43 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         setUsingStarter(false);
         setCurrentIndex(0);
         setIsContentLoading(false);
-        console.log(`✅ Loaded Reader Level ${studentLevel} content:`, practiceWords);
       } else {
         // Fallback to starter words if no content available
         setWords(STARTER_WORDS);
         setUsingStarter(true);
         setCurrentIndex(0);
         setIsContentLoading(false);
-        console.log(`⚠️ No content for Reader Level ${studentLevel}, using starter words`);
       }
     } else {
       setWords(STARTER_WORDS);
       setUsingStarter(true);
       setCurrentIndex(0);
       setIsContentLoading(false);
-      console.log(`⚠️ Reader Level ${studentLevel} not found, using starter words`);
     }
     
     setRecognizedText("");
+    setWordResults([]);
     setScore(null);
     setCompleted(false);
   };
 
-  // 🔹 Initialize Google Speech service
-  useEffect(() => {
-    if (GOOGLE_CLOUD_PROJECT_ID && GOOGLE_CLOUD_API_KEY) {
-      initializeGoogleSpeech(GOOGLE_CLOUD_PROJECT_ID, GOOGLE_CLOUD_API_KEY);
-    }
-  }, []);
+  // Azure Speech is initialized globally in App.tsx
 
-  // 🔹 Google Cloud Speech transcription
-  const transcribeAudio = async (uri: string) => {
+  // 🔹 Azure Pronunciation Assessment transcription
+  const transcribeAudio = async (uri: string): Promise<{ transcript: string; pronScore: number; words: AzureWordResult[] }> => {
     try {
-      console.log('Starting transcription for audio URI:', uri);
-      
-      // Check if service is initialized
-      const speechService = getGoogleSpeechService();
-      console.log('Google Speech service retrieved successfully');
-      
-      // Use different configurations based on content type
-      const config = (currentAssessmentItem?.type === 'passage' || currentContentType === 'paragraphs')
-        ? GoogleSpeechService.getPassageConfig()
-        : GoogleSpeechService.getPronunciationConfig();
-      
-      console.log('Using transcription config for content type:', {
-        isAssessment,
-        currentAssessmentItemType: currentAssessmentItem?.type,
-        currentContentType,
-        configType: (currentAssessmentItem?.type === 'passage' || currentContentType === 'paragraphs') ? 'passage' : 'pronunciation'
-      });
+      const service = getAzureSpeechService();
+      const referenceText = currentAssessmentItem?.content || currentWord;
 
-      const result = await speechService.transcribeAudio(uri, config);
-      console.log('Transcription result:', result);
-      
-      // If no transcript, run detailed debug analysis and return empty string
-      if (!result.transcript || result.transcript.trim().length === 0) {
-        console.log('🔍 No transcript returned - running debug analysis...');
-        await speechService.debugTranscription(uri);
-        return ""; // Return empty string instead of showing error
+      const result = await service.assessPronunciation(uri, referenceText);
+
+      if (!result.recognizedText || result.recognizedText.trim().length === 0) {
+        return { transcript: '', pronScore: 0, words: [] };
       }
-      
-      return result.transcript;
+
+      return { transcript: result.recognizedText, pronScore: result.pronScore, words: result.words };
     } catch (err: any) {
-      console.error("Google Speech error:", {
-        message: err.message,
-        stack: err.stack,
-        error: err
-      });
-      
-      // Run debug analysis on error
-      try {
-        const speechService = getGoogleSpeechService();
-        console.log('🔍 Running debug analysis due to error...');
-        await speechService.debugTranscription(uri);
-      } catch (debugErr) {
-        console.log('🔍 Debug analysis also failed:', debugErr);
-      }
-      
-      // Return empty string instead of showing error alert
-      return "";
+      return { transcript: '', pronScore: 0, words: [] };
     }
   };
 
@@ -959,22 +867,18 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         try {
           await recordingRef.current.stopAndUnloadAsync();
         } catch (cleanupError) {
-          console.log("Cleanup warning:", cleanupError);
         }
         recordingRef.current = null;
       }
 
       // ✅ Request permissions
-      console.log('🎤 Requesting microphone permissions...');
       const permission = await Audio.requestPermissionsAsync();
-      console.log('🎤 Permission result:', permission);
       
       if (!permission.granted) {
         return Alert.alert("Error", "Microphone permission is required.");
       }
 
       // ✅ Set audio mode
-      console.log('🎤 Setting audio mode...');
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -982,22 +886,35 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         playThroughEarpieceAndroid: false,
         staysActiveInBackground: false,
       });
-      console.log('✅ Audio mode set successfully');
 
-      // ✅ Try simpler recording format - use high quality preset
-      const recordingOptions = Audio.RecordingOptionsPresets.HIGH_QUALITY;
-      
-      console.log('🎤 Creating recording with options:', recordingOptions);
-      const { recording } = await Audio.Recording.createAsync(recordingOptions);
-      console.log('✅ Recording object created successfully');
+      const { recording } = await Audio.Recording.createAsync({
+        android: {
+          extension: '.m4a',
+          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+          audioEncoder: Audio.AndroidAudioEncoder.AAC,
+          sampleRate: 16000,
+          numberOfChannels: 1,
+          bitRate: 128000,
+        },
+        ios: {
+          extension: '.wav',
+          outputFormat: Audio.IOSOutputFormat.LINEARPCM,
+          audioQuality: Audio.IOSAudioQuality.HIGH,
+          sampleRate: 16000,
+          numberOfChannels: 1,
+          bitRate: 256000,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
+        },
+        web: { mimeType: 'audio/webm', bitsPerSecond: 128000 },
+      });
       
       recordingRef.current = recording;
       setIsRecording(true);
       
-      console.log('🎤 Recording started - button should show recording state');
       
     } catch (err) {
-      console.error("Recording error", err);
       Alert.alert("Recording Error", "Unable to start recording. Please try again.");
       setIsRecording(false);
       recordingRef.current = null;
@@ -1019,28 +936,17 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       }
 
       // ✅ Stop and get the URI
-      console.log('🎤 Stopping recording...');
       await recordingRef.current.stopAndUnloadAsync();
       const uri = recordingRef.current.getURI();
       recordingRef.current = null; // ✅ Clear reference immediately
       
-      console.log('🎤 Recording stopped successfully');
-      console.log('📁 Audio file URI:', uri);
       
       if (uri) {
         // Enhanced audio file validation
         try {
-          console.log('🔍 Validating recorded audio file...');
           const response = await fetch(uri);
           const blob = await response.blob();
           
-          console.log('🎵 Audio file validation:', {
-            uri: uri,
-            size: blob.size,
-            type: blob.type,
-            sizeInKB: Math.round(blob.size / 1024),
-            exists: blob.size > 0
-          });
           
           if (blob.size === 0) {
             Alert.alert("Recording Issue", "Recording is empty. Please ensure you're speaking into the microphone and try again.");
@@ -1052,26 +958,20 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             return;
           }
           
-          console.log('✅ Audio file validation passed');
         } catch (fileCheckError) {
-          console.error('❌ Error validating audio file:', fileCheckError);
           Alert.alert("File Error", "Could not validate recorded audio. Please try recording again.");
           return;
         }
         
-        const transcript = await transcribeAudio(uri);
-        console.log('Transcription completed:', {
-          transcript,
-          length: transcript.length,
-          contentType: currentContentType,
-          currentWord: currentWord.substring(0, 50) + '...' // Show first 50 chars for context
-        });
+        const { transcript, pronScore, words } = await transcribeAudio(uri);
         setRecognizedText(transcript);
-        
+        setWordResults(words);
+
         if (transcript) {
-          const finalScore = calculateScore(transcript, currentWord);
+          const finalScore = pronScore > 0 ? Math.round(pronScore) : calculateScore(transcript, currentWord);
           setScore(finalScore);
           setCompleted(true);
+          setAttempts(prev => [...prev, finalScore]);
           
           if (isAssessment) {
             // Handle assessment scoring
@@ -1091,7 +991,6 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           }
         } else {
           // Handle empty transcript - prompt user to try again instead of accepting 0 score
-          console.log('⚠️ Empty transcript - prompting user to try again');
           Alert.alert(
             "No Audio Detected", 
             "We couldn't detect any audio. Please try again and speak clearly into the microphone.",
@@ -1105,7 +1004,6 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         Alert.alert("Error", "Failed to get recording. Please try again.");
       }
     } catch (err) {
-      console.error("Stop recording error", err);
       Alert.alert("Error", "Failed to process recording. Please try again.");
       recordingRef.current = null; // ✅ Ensure cleanup
     } finally {
@@ -1137,16 +1035,9 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     try {
       const user = auth.currentUser;
       if (!user) {
-        console.log("No user found, skipping save");
         return;
       }
       
-      console.log("Saving progress:", {
-        currentIndex,
-        scoresArrayLength: scoresArray.length,
-        currentWord,
-        isPersonalRoom
-      });
       
       if (isPersonalRoom) {
         // Save to student progress collection with personal flag
@@ -1222,9 +1113,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         );
       }
       
-      console.log("Progress saved successfully");
     } catch (err) {
-      console.error("Save progress error:", err);
       // Show user-friendly error message
       Alert.alert(
         "Save Error", 
@@ -1245,29 +1134,36 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         // More assessment items to complete
         setCurrentIndex(currentIndex + 1);
         setRecognizedText("");
+        setWordResults([]);
         setScore(null);
         setCompleted(false);
+        setAttempts([]);
       } else {
         // All assessment items completed
-        completeAssessment();
+        await completeAssessment();
       }
     } else {
       // Normal room flow with macro level progression
       if (currentIndex < words.length - 1) {
         setCurrentIndex(currentIndex + 1);
         setRecognizedText("");
+        setWordResults([]);
         setScore(null);
         setCompleted(false);
+        setAttempts([]);
         // Save progress when moving to next word
         setTimeout(() => saveProgress(), 100);
       } else {
         if (usingStarter) {
           setUsingStarter(false);
-          setWords(roomData.words || [roomData.word]);
+          const fallbackWords = roomData.words || (roomData.word ? [roomData.word] : []);
+          if (fallbackWords.length > 0) setWords(fallbackWords);
           setCurrentIndex(0);
           setRecognizedText("");
+          setWordResults([]);
           setScore(null);
           setCompleted(false);
+          setAttempts([]);
         } else {
           // Complete current content type and handle macro level progression
           await completeContentType();
@@ -1333,6 +1229,24 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     };
   };
 
+  // 🔹 True when every word is rendered green — gates "Next" vs "Try Again"
+  const allWordsGreen = completed && score !== null && (() => {
+    if (currentContentType === 'words') {
+      return score >= 70;
+    }
+    if (wordResults.length > 0) {
+      return wordResults.every(
+        w => w.accuracyScore >= 70 && w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission'
+      );
+    }
+    // Fallback: positional text comparison
+    if (!recognizedText || !currentWord) return false;
+    const recognized = recognizedText.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w);
+    return currentWord.split(/\s+/).filter(w => w).every((word, i) =>
+      recognized[i] === word.toLowerCase().replace(/[^\w]/g, '')
+    );
+  })();
+
   // 🔹 Get word color based on recognition result
   const getWordColor = () => {
     if (!completed || score === null) return COLORS.white;
@@ -1346,30 +1260,57 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     return COLORS.white;
   };
 
+  // 🔹 Speak a word/phrase using TTS
+  const speakWord = useCallback((text: string) => {
+    Speech.stop();
+    Speech.speak(text, { language: 'en-PH', rate: 0.85, volume: 1.0 });
+  }, []);
+
   // 🔹 Render colored words for sentences/paragraphs
   const renderColoredWords = () => {
-    if (!completed || !recognizedText || !currentWord) {
+    if (!completed || !currentWord) {
       return currentWord || "Content not available";
     }
 
-    // For single words, just return the word (color handled by getWordColor)
+    // For single words, color is handled by getWordColor on the parent Text
     if (currentContentType === 'words') {
       return currentWord;
     }
 
-    // For sentences/paragraphs, split and color each word
-    const expected = currentWord.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w);
+    const originalWords = currentWord.split(/\s+/).filter(w => w);
+
+    // Use Azure word-level results when available — most accurate
+    if (wordResults.length > 0) {
+      // Build a map from lowercase word → isCorrect based on Azure scores
+      const azureMap = new Map<string, boolean>();
+      wordResults.forEach(w => {
+        const key = w.word.toLowerCase();
+        // A word is correct if accuracy >= 70 and not a mispronunciation or omission
+        const correct = w.accuracyScore >= 70 && w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission';
+        azureMap.set(key, correct);
+      });
+
+      return originalWords.map((word, index) => {
+        const clean = word.toLowerCase().replace(/[^\w]/g, '');
+        // Default to correct if Azure didn't return a result for this word
+        const isCorrect = azureMap.has(clean) ? azureMap.get(clean)! : true;
+        return (
+          <Text key={index} style={{ color: isCorrect ? '#4CAF50' : '#FF5722' }}>
+            {word}{' '}
+          </Text>
+        );
+      });
+    }
+
+    // Fallback: positional text comparison when Azure word results are unavailable
+    if (!recognizedText) return currentWord;
     const recognized = recognizedText.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w);
-    const originalWords = currentWord.split(/\s+/);
 
     return originalWords.map((word, index) => {
-      const cleanWord = word.toLowerCase().replace(/[^\w\s]/g, '');
-      const isCorrect = recognized.includes(cleanWord);
+      const clean = word.toLowerCase().replace(/[^\w]/g, '');
+      const isCorrect = recognized[index] === clean;
       return (
-        <Text 
-          key={index} 
-          style={{ color: isCorrect ? '#4CAF50' : '#FF5722' }}
-        >
+        <Text key={index} style={{ color: isCorrect ? '#4CAF50' : '#FF5722' }}>
           {word}{' '}
         </Text>
       );
@@ -1377,9 +1318,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   };
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         {/* Show loading screen while authentication is being restored */}
         {isAuthLoading ? (
           <View style={styles.loadingContainer}>
@@ -1546,7 +1485,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             <View style={styles.assessmentResults}>
               {(() => {
                 // Calculate overall performance for this macro level
-                const currentMacroProgress = macroLevelProgress[currentMacroLevel];
+                const currentMacroProgress = macroLevelProgress[currentMacroLevel as keyof typeof macroLevelProgress];
                 let totalScore = 0;
                 let totalItems = 0;
                 
@@ -1707,6 +1646,29 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             </View>
           </View>
 
+          {/* Mispronounced Words Section */}
+          {completed && score !== null && wordResults.filter(w => w.errorType !== 'None' || w.accuracyScore < 70).length > 0 && (
+            <View style={styles.mispronounedSection}>
+              <Text style={styles.mispronounedTitle}>Mispronounced words:</Text>
+              {wordResults
+                .filter(w => w.errorType !== 'None' || w.accuracyScore < 70)
+                .map((w, i) => (
+                  <View key={i} style={styles.mispronounedRow}>
+                    <Text style={styles.mispronounedWordText}>{w.word}</Text>
+                    <TouchableOpacity
+                      onPress={() => speakWord(w.word)}
+                      style={styles.mispronounedAudioBtn}
+                    >
+                      <Ionicons name="volume-high" size={22} color={COLORS.primary} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              <Text style={styles.mispronounedHint}>
+                Tap the audio icon to hear the correct pronunciation, then try again.
+              </Text>
+            </View>
+          )}
+
           {/* Recognition Result */}
           {completed && score !== null ? (
             <View style={styles.resultCard}>
@@ -1723,14 +1685,14 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                   <View style={styles.scoreContainer}>
                     <Text style={styles.scoreLabel}>Accuracy Score</Text>
                     <View style={styles.scoreBar}>
-                      <View 
+                      <View
                         style={[
-                          styles.scoreBarFill, 
-                          { 
+                          styles.scoreBarFill,
+                          {
                             width: `${score}%`,
                             backgroundColor: score >= 70 ? "#4CAF50" : score >= 40 ? "#FF9800" : "#FF5722"
                           }
-                        ]} 
+                        ]}
                       />
                     </View>
                     <Text style={[
@@ -1738,6 +1700,32 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                       ]}>
                       {score}%
                     </Text>
+                  </View>
+                )}
+
+                {attempts.length > 0 && (
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={[styles.scoreLabel, { marginBottom: 6 }]}>Attempt History</Text>
+                    {attempts.map((s, i) => (
+                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                        <Text style={{ color: COLORS.white, fontSize: 13, width: 80 }}>
+                          Attempt {i + 1}
+                        </Text>
+                        <View style={[styles.scoreBar, { flex: 1, height: 8 }]}>
+                          <View style={[
+                            styles.scoreBarFill,
+                            {
+                              width: `${s}%`,
+                              height: 8,
+                              backgroundColor: s >= 70 ? '#4CAF50' : s >= 40 ? '#FF9800' : '#FF5722',
+                            }
+                          ]} />
+                        </View>
+                        <Text style={{ color: COLORS.white, fontSize: 13, width: 42, textAlign: 'right' }}>
+                          {s}%{i === attempts.length - 1 && allWordsGreen ? ' ✓' : ''}
+                        </Text>
+                      </View>
+                    ))}
                   </View>
                 )}
               </View>
@@ -1760,6 +1748,17 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
 
         {/* Bottom Action Button */}
         <View style={styles.bottomContainer}>
+          {/* Hear correct pronunciation — shown when score is low */}
+          {completed && score !== null && score < 70 && currentWord && (
+            <TouchableOpacity
+              style={styles.hearWordButton}
+              onPress={() => speakWord(currentWord)}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="volume-high" size={18} color={COLORS.white} />
+              <Text style={styles.hearWordText}>Hear correct pronunciation</Text>
+            </TouchableOpacity>
+          )}
           {!completed ? (
             <TouchableOpacity
               style={[
@@ -1808,7 +1807,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                 </View>
               </LinearGradient>
             </TouchableOpacity>
-          ) : (
+          ) : allWordsGreen ? (
             <TouchableOpacity
               style={styles.completedButton}
               onPress={handleProceed}
@@ -1821,19 +1820,40 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                 <View style={styles.micButtonContent}>
                   <Ionicons name="checkmark" size={28} color={COLORS.white} />
                   <Text style={styles.micButtonText}>
-                    {isAssessment 
-                      ? currentIndex < ASSESSMENT_ITEMS.length - 1 
+                    {isAssessment
+                      ? currentIndex < ASSESSMENT_ITEMS.length - 1
                         ? `Next Sentence (${currentIndex + 1}/${ASSESSMENT_ITEMS.length})`
                         : "Complete Assessment"
-                      : currentIndex < words.length - 1 
-                        ? currentContentType === 'sentences' ? "Next Sentence" 
+                      : currentIndex < words.length - 1
+                        ? currentContentType === 'sentences' ? "Next Sentence"
                           : currentContentType === 'paragraphs' ? "Next Paragraph"
                           : "Next Word"
-                        : currentContentType === 'sentences' ? "Complete Sentences" 
+                        : currentContentType === 'sentences' ? "Complete Sentences"
                           : currentContentType === 'paragraphs' ? "Complete Paragraphs"
                           : "Complete Words"
                     }
                   </Text>
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.micButton}
+              onPress={() => {
+                setCompleted(false);
+                setRecognizedText("");
+                setWordResults([]);
+                setScore(null);
+              }}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={['#FF5722', '#FF8A50']}
+                style={styles.micButtonGradient}
+              >
+                <View style={styles.micButtonContent}>
+                  <Ionicons name="refresh" size={28} color={COLORS.white} />
+                  <Text style={styles.micButtonText}>Try Again</Text>
                 </View>
               </LinearGradient>
             </TouchableOpacity>
@@ -1927,19 +1947,11 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             </View>
           </View>
         </Modal>
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: SPACING.md,
-  },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -2057,6 +2069,71 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     justifyContent: "center",
     alignItems: "center",
+  },
+  hearWordButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: SPACING.sm,
+    backgroundColor: "rgba(255, 87, 34, 0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 87, 34, 0.5)",
+    borderRadius: 12,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    marginBottom: SPACING.lg,
+    alignSelf: "center",
+  },
+  hearWordText: {
+    color: COLORS.white,
+    fontSize: FONT_SIZES.sm,
+    fontFamily: getFontFamily('medium'),
+  },
+  mispronounedSection: {
+    backgroundColor: "rgba(255, 82, 82, 0.15)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255, 82, 82, 0.3)",
+  },
+  mispronounedTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FF5252",
+    fontFamily: getFontFamily('semibold'),
+    marginBottom: 12,
+  },
+  mispronounedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  mispronounedWordText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#FF5252",
+    fontFamily: getFontFamily('semibold'),
+  },
+  mispronounedAudioBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.white,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  mispronounedHint: {
+    fontSize: 13,
+    color: "rgba(255, 255, 255, 0.7)",
+    fontFamily: getFontFamily('regular'),
+    marginTop: 4,
+    textAlign: "center",
   },
   resultCard: {
     backgroundColor: "rgba(255, 255, 255, 0.15)",

@@ -34,7 +34,6 @@ export const OnboardingProvider = ({ children }: OnboardingProviderProps) => {
       const hasSeenOnboarding = await AsyncStorage.getItem('hasSeenOnboarding');
       setIsFirstTime(hasSeenOnboarding === null);
     } catch (error) {
-      console.error('Error checking onboarding status:', error);
       setIsFirstTime(true);
     } finally {
       setIsLoading(false);
@@ -46,7 +45,7 @@ export const OnboardingProvider = ({ children }: OnboardingProviderProps) => {
       await AsyncStorage.setItem('hasSeenOnboarding', 'true');
       setIsFirstTime(false);
     } catch (error) {
-      console.error('Error setting onboarding complete:', error);
+      console.error("Failed to save onboarding status:", error);
     }
   };
 

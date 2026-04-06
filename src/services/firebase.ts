@@ -1,33 +1,47 @@
 // firebaseConfig.ts
 import { initializeApp } from "firebase/app";
-import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
+import { initializeAuth, getReactNativePersistence, getAuth, Auth } from 'firebase/auth';
 import { getFirestore } from "firebase/firestore";
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  FIREBASE_API_KEY,
+  FIREBASE_AUTH_DOMAIN,
+  FIREBASE_PROJECT_ID,
+  FIREBASE_STORAGE_BUCKET,
+  FIREBASE_MESSAGING_SENDER_ID,
+  FIREBASE_APP_ID,
+} from '@env';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDcGdyuTeyhIqw24_HaNvFumS7Tibvm2gw",
-  authDomain: "pronunciation-feedback-s-b5e3e.firebaseapp.com",
-  projectId: "pronunciation-feedback-s-b5e3e",
-  storageBucket: "pronunciation-feedback-s-b5e3e.firebasestorage.app",
-  messagingSenderId: "857357410813",
-  appId: "1:857357410813:web:48fda850dffde3930c3994",
+  apiKey: FIREBASE_API_KEY,
+  authDomain: FIREBASE_AUTH_DOMAIN,
+  projectId: FIREBASE_PROJECT_ID,
+  storageBucket: FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: FIREBASE_MESSAGING_SENDER_ID,
+  appId: FIREBASE_APP_ID,
 };
 
 const app = initializeApp(firebaseConfig);
 
-// ✅ Initialize Auth with explicit AsyncStorage persistence for React Native
-// This ensures user stays logged in even after app is closed
-let auth;
+// Initialize Auth with AsyncStorage persistence for React Native
+let auth: Auth;
 try {
+  // getReactNativePersistence is available via Metro's react-native field resolution
   auth = initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage)
+    persistence: getReactNativePersistence(AsyncStorage as any)
   });
-  console.log('✅ Firebase Auth initialized with AsyncStorage persistence');
-} catch (error) {
-  // If already initialized, get the existing instance
-  const { getAuth } = require('firebase/auth');
-  auth = getAuth(app);
-  console.log('⚠️ Firebase Auth already initialized, using existing instance');
+} catch (error: any) {
+  // If already initialized (e.g. hot reload), get the existing instance
+  if (error.code === 'auth/already-initialized') {
+    auth = getAuth(app);
+  } else {
+    // Fallback: try without persistence
+    try {
+      auth = getAuth(app);
+    } catch {
+      auth = initializeAuth(app);
+    }
+  }
 }
 
 const db = getFirestore(app);

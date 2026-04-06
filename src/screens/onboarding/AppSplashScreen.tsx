@@ -6,8 +6,8 @@ import {
   Animated,
   Dimensions,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { GRADIENTS, FONT_SIZES } from '../../constants/theme';
+import { FONT_SIZES } from '../../constants/theme';
+import { ScreenLayout } from '../../components/ScreenLayout';
 import { getFontFamily } from '../../../styles/fonts';
 
 const { width, height } = Dimensions.get('window');
@@ -55,8 +55,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
   }, []);
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <View style={styles.content}>
+    <ScreenLayout style={styles.content}>
         {/* Animated Logo */}
         <Animated.View
           style={[
@@ -99,8 +98,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
             <LoadingDot delay={400} />
           </View>
         </Animated.View>
-      </View>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
@@ -146,11 +144,6 @@ const LoadingDot = ({ delay }: { delay: number }) => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   content: {
     alignItems: 'center',
     justifyContent: 'center',

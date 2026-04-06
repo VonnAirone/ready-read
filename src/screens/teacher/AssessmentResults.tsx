@@ -4,12 +4,9 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
-  StatusBar,
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../services/firebase';
 import { 
@@ -18,7 +15,8 @@ import {
   where, 
   getDocs,
 } from 'firebase/firestore';
-import { COLORS, GRADIENTS } from '../../constants/theme';
+import { COLORS } from '../../constants/theme';
+import { ScreenLayout } from '../../components/ScreenLayout';
 import { getFontFamily } from '../../../styles/fonts';
 
 interface AssessmentData {
@@ -137,7 +135,6 @@ export default function AssessmentResults({ navigation }: AssessmentResultsProps
 
       setAssessments(assessmentsList);
     } catch (error) {
-      console.error('Error loading assessment data:', error);
     } finally {
       setLoading(false);
     }
@@ -171,22 +168,17 @@ export default function AssessmentResults({ navigation }: AssessmentResultsProps
 
   if (loading) {
     return (
-      <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="white" />
-            <Text style={styles.loadingText}>Loading assessments...</Text>
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
+      <ScreenLayout>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="white" />
+          <Text style={styles.loadingText}>Loading assessments...</Text>
+        </View>
+      </ScreenLayout>
     );
   }
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity 
@@ -285,18 +277,11 @@ export default function AssessmentResults({ navigation }: AssessmentResultsProps
             )}
           </View>
         </ScrollView>
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -6,18 +6,16 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  SafeAreaView,
-  StatusBar,
   ScrollView,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import { db, auth } from "../../services/firebase";
 import { collection, query, where, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
 import RoomSelectionModal from "../../components/RoomSelectionModal";
 import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator } from "react-native";
-import { COLORS, GRADIENTS } from "../../constants/theme";
+import { COLORS } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
 
 interface JoinedRoom {
@@ -93,7 +91,6 @@ export default function Join() {
         setRecentRooms(rooms);
       }
     } catch (error) {
-      console.error("Error loading recent rooms:", error);
     } finally {
       setLoadingRecent(false);
     }
@@ -165,7 +162,6 @@ export default function Join() {
         createdBy: teacherId,
       });
     } catch (err) {
-      console.error("Error entering room:", err);
       Alert.alert("Error", "Something went wrong. Try again.");
     } finally {
       setLoading(false); // ✅ stop spinner
@@ -174,9 +170,7 @@ export default function Join() {
 
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         
         {/* Header Section */}
         <View style={styles.header}>
@@ -274,18 +268,11 @@ export default function Join() {
         {/* Room List Modal */}
         <RoomSelectionModal visible={roomsVisible} onClose={() => setRoomsVisible(false)} />
         
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
   scrollContent: {
     flex: 1,
   },

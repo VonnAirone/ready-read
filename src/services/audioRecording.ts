@@ -26,14 +26,12 @@ export class AudioRecordingService {
 
       return true;
     } catch (error) {
-      console.error('Failed to initialize audio recording:', error);
       return false;
     }
   }
 
   async startRecording(): Promise<boolean> {
     if (this.isRecording) {
-      console.warn('Recording already in progress');
       return false;
     }
 
@@ -43,36 +41,36 @@ export class AudioRecordingService {
         return false;
       }
 
-      this.recording = new Audio.Recording();
-      await this.recording.prepareToRecordAsync({
+      const { recording } = await Audio.Recording.createAsync({
         android: {
-          extension: '.m4a',
-          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-          audioEncoder: Audio.AndroidAudioEncoder.AAC,
-          sampleRate: 44100,
+          extension: '.wav',
+          outputFormat: Audio.AndroidOutputFormat.DEFAULT,
+          audioEncoder: Audio.AndroidAudioEncoder.DEFAULT,
+          sampleRate: 16000,
           numberOfChannels: 1,
-          bitRate: 128000,
+          bitRate: 256000,
         },
         ios: {
-          extension: '.m4a',
-          outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
+          extension: '.wav',
+          outputFormat: Audio.IOSOutputFormat.LINEARPCM,
           audioQuality: Audio.IOSAudioQuality.HIGH,
-          sampleRate: 44100,
+          sampleRate: 16000,
           numberOfChannels: 1,
-          bitRate: 128000,
+          bitRate: 256000,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
         },
         web: {
           mimeType: 'audio/webm',
           bitsPerSecond: 128000,
         },
       });
-      await this.recording.startAsync();
+      this.recording = recording;
       this.isRecording = true;
 
-      console.log('Recording started successfully');
       return true;
     } catch (error) {
-      console.error('Failed to start recording:', error);
       this.cleanup();
       return false;
     }
@@ -90,9 +88,12 @@ export class AudioRecordingService {
       
       await this.recording.stopAndUnloadAsync();
       const uri = this.recording.getURI();
-      
+
       this.isRecording = false;
       this.recording = null;
+
+      // Reset audio mode so TTS / playback works normally after recording
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(() => {});
 
       if (!uri) {
         return { success: false, error: 'Recording URI not available' };
@@ -100,20 +101,14 @@ export class AudioRecordingService {
 
       // Validate minimum duration (500ms)
       if (durationMs < 500) {
-        console.warn('⚠️ Recording too short:', durationMs, 'ms');
         return { 
           success: false, 
           error: 'Recording too short. Please record for at least 1 second.' 
         };
       }
 
-      console.log('✅ Recording stopped successfully:', {
-        uri,
-        duration: `${(durationMs / 1000).toFixed(2)}s`
-      });
       return { success: true, uri };
     } catch (error) {
-      console.error('Failed to stop recording:', error);
       this.cleanup();
       return { success: false, error: 'Failed to stop recording' };
     }
@@ -124,7 +119,6 @@ export class AudioRecordingService {
       try {
         await this.recording.stopAndUnloadAsync();
       } catch (error) {
-        console.error('Failed to cancel recording:', error);
       }
     }
     this.cleanup();

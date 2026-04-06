@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { LinearGradient } from 'expo-linear-gradient';
 import {
   View,
   TextInput,
@@ -8,15 +7,13 @@ import {
   StyleSheet,
   Text,
   ActivityIndicator,
-  SafeAreaView,
-  StatusBar,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "../../services/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { auth } from "../../services/firebase";
 import { getFontFamily } from "../../../styles/fonts";
-import { COLORS, GRADIENTS } from "../../constants/theme";
+import { COLORS } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
 
 export default function LoginScreen({ navigation }: any) {
   const [email, setEmail] = useState("");
@@ -27,12 +24,6 @@ export default function LoginScreen({ navigation }: any) {
 const handleLogin = async () => {
   if (!email || !password) {
     Alert.alert("Error", "Please enter both email and password.");
-    return;
-  }
-
-  // 🔹 Admin shortcut (bypass Firebase)
-  if (email === "ADMIN" && password === "ADMIN12345") {
-    navigation.navigate("TeacherSignup"); // 👈 match the name in App.tsx
     return;
   }
 
@@ -49,9 +40,7 @@ const handleLogin = async () => {
 
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         <View style={styles.content}>
           <View style={styles.box}>
             <View style={styles.header}>
@@ -107,19 +96,11 @@ const handleLogin = async () => {
         </TouchableOpacity>
           </View>
         </View>
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
   content: {
     flex: 1,
     justifyContent: "center",

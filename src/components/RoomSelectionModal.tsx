@@ -76,7 +76,7 @@ export default function ModalRoom({ visible, onClose }: ModalRoomProps) {
       
       setJoinedRoomCodes(Array.from(joinedCodes));
     } catch (error) {
-      console.error("Error loading joined rooms:", error);
+      console.error("Failed to load joined rooms:", error);
     }
   };
 
@@ -104,7 +104,8 @@ export default function ModalRoom({ visible, onClose }: ModalRoomProps) {
         setJoinedRoomCodes(existingRoomCodes);
       }
     } catch (error) {
-      console.error("Error saving joined room:", error);
+      console.error("Failed to save joined room:", error);
+      Alert.alert("Error", "Could not save room. Please try again.");
     }
   };
 
@@ -127,7 +128,9 @@ export default function ModalRoom({ visible, onClose }: ModalRoomProps) {
       
       setRooms(roomList);
     } catch (error) {
-      console.error("Error fetching rooms:", error);
+      console.error("Failed to fetch rooms:", error);
+      Alert.alert("Error", "Could not load rooms. Please check your connection and try again.");
+      setRooms([]);
     } finally {
       setLoading(false);
     }

@@ -3,11 +3,8 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
   Alert,
-  SafeAreaView,
-  StatusBar,
   ScrollView,
   ActivityIndicator,
 } from "react-native";
@@ -22,8 +19,8 @@ import {
 } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { LinearGradient } from "expo-linear-gradient";
-import { COLORS, GRADIENTS } from "../../constants/theme";
+import { COLORS } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
 
 export default function ManageRooms() {
@@ -67,7 +64,6 @@ export default function ManageRooms() {
               await deleteDoc(doc(db, "GenerateRoom", roomId));
               Alert.alert("Success", "Room has been deleted successfully.");
             } catch (err) {
-              console.error("Error deleting room:", err);
               Alert.alert("Error", "Could not delete room. Please try again.");
             }
           },
@@ -77,9 +73,7 @@ export default function ManageRooms() {
   };
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         {/* Header with Back Button */}
         <View style={styles.header}>
           <TouchableOpacity 
@@ -180,18 +174,11 @@ export default function ManageRooms() {
             </>
           )}
         </ScrollView>
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

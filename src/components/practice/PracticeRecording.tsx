@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Animated, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAudioRecording } from '../../hooks/useAudioRecording';
 
@@ -27,7 +27,9 @@ export default function PracticeRecording({
 
   React.useEffect(() => {
     if (isRecording) {
+      let active = true;
       const pulse = () => {
+        if (!active) return;
         Animated.sequence([
           Animated.timing(pulseAnimation, {
             toValue: 1.2,
@@ -39,11 +41,16 @@ export default function PracticeRecording({
             duration: 500,
             useNativeDriver: true,
           }),
-        ]).start(pulse);
+        ]).start(({ finished }) => {
+          if (finished && active) pulse();
+        });
       };
       pulse();
-    } else {
-      pulseAnimation.setValue(1);
+      return () => {
+        active = false;
+        pulseAnimation.stopAnimation();
+        pulseAnimation.setValue(1);
+      };
     }
   }, [isRecording]);
 
@@ -51,7 +58,8 @@ export default function PracticeRecording({
     try {
       await startRecording();
     } catch (error) {
-      console.error('Failed to start recording:', error);
+      console.error("Failed to start recording:", error);
+      Alert.alert("Recording Error", "Could not start recording. Please check microphone permissions and try again.");
     }
   };
 
@@ -59,18 +67,20 @@ export default function PracticeRecording({
     try {
       await stopRecording();
     } catch (error) {
-      console.error('Failed to stop recording:', error);
+      console.error("Failed to stop recording:", error);
+      Alert.alert("Recording Error", "Could not stop recording. Please try again.");
     }
   };
 
   const handleSubmit = async () => {
     if (!recordingUri) return;
-    
+
     setIsSubmitting(true);
     try {
       await onSubmitRecording(recordingUri);
     } catch (error) {
-      console.error('Failed to submit recording:', error);
+      console.error("Failed to submit recording:", error);
+      Alert.alert("Submission Error", "Could not process your recording. Please try again.");
     } finally {
       setIsSubmitting(false);
     }

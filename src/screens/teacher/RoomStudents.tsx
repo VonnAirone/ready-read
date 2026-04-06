@@ -5,8 +5,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  SafeAreaView,
-  StatusBar,
   ActivityIndicator,
   Modal,
   ScrollView,
@@ -20,8 +18,8 @@ import {
 } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { LinearGradient } from "expo-linear-gradient";
-import { COLORS, GRADIENTS } from "../../constants/theme";
+import { COLORS } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
 
 interface Student {
@@ -147,9 +145,7 @@ export default function RoomStudents() {
   );
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity 
@@ -300,8 +296,7 @@ export default function RoomStudents() {
             </View>
           </Modal>
         )}
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
@@ -367,12 +362,6 @@ const calculateDiagnosticStats = (student: Student) => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

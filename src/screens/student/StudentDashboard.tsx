@@ -6,15 +6,13 @@ import {
   TouchableOpacity,
   Image,
   Alert,
-  SafeAreaView,
-  StatusBar,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "../../services/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
-import { COLORS, GRADIENTS } from "../../constants/theme";
+import { COLORS } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
 
 export default function StudentDashboard({ navigation }: any) {
@@ -31,7 +29,6 @@ export default function StudentDashboard({ navigation }: any) {
             setPlayerName(snap.data().playerName);
           }
         } catch (err) {
-          console.error("Error fetching player name:", err);
         }
       }
     });
@@ -46,10 +43,9 @@ export default function StudentDashboard({ navigation }: any) {
         text: "Yes",
         onPress: async () => {
           try {
-            await signOut(auth); // ✅ properly sign out
-            navigation.replace("Login"); // go to login
+            await signOut(auth);
+            // onAuthStateChanged in App.tsx handles navigation to auth stack automatically
           } catch (err) {
-            console.error("Error signing out:", err);
           }
         },
       },
@@ -57,9 +53,7 @@ export default function StudentDashboard({ navigation }: any) {
   };
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         {/* Main Menu Section */}
         <View style={styles.menuSection}>
           <Text style={styles.menuTitle}>What would you like to do?</Text>
@@ -108,20 +102,12 @@ export default function StudentDashboard({ navigation }: any) {
             </TouchableOpacity>
           </View>
         </View>
-        
-      </SafeAreaView>
-    </LinearGradient>
+  
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
   profileSection: {
     flexDirection: "row",
     alignItems: "center",

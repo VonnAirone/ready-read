@@ -1,12 +1,11 @@
-import { useState, useCallback } from 'react';
-import { 
-  getContentForLevel, 
-  getSubLevelContent, 
-  calculateProgression,
-  ContentItem,
-  GameProgress 
+import { useState, useCallback, useRef, useEffect } from 'react';
+import {
+  getSequentialContent,
+  getContentTypeForMicroLevel,
+  ContentItem
 } from '../data/gameContent';
-import { SpeechRecognitionService } from '../services/speechRecognition';
+import { speechRecognitionService } from '../services/speechRecognition';
+import { WordMatchResult } from '../types';
 
 interface ScoreResult {
   phonemeAccuracy: number;
@@ -16,63 +15,58 @@ interface ScoreResult {
 }
 
 export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
-  const [gameProgress, setGameProgress] = useState<GameProgress>({
-    currentReaderLevel: initialReaderLevel,
-    currentMacroLevel: 1,
-    currentSubLevel: 1,
-    completedContent: [],
-    usedIndices: {},
-    scores: {}
-  });
+  const timerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Clear all pending timers on unmount
+  useEffect(() => {
+    return () => {
+      timerRefs.current.forEach(clearTimeout);
+    };
+  }, []);
+
+  const [currentReaderLevel, setCurrentReaderLevel] = useState(initialReaderLevel);
+  const [currentMacroLevel, setCurrentMacroLevel] = useState<1 | 2 | 3 | 4>(1);
+  const [currentMicroLevel, setCurrentMicroLevel] = useState(1);
 
   const [currentContent, setCurrentContent] = useState<ContentItem | null>(null);
   const [score, setScore] = useState<ScoreResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [progressMessage, setProgressMessage] = useState<string>('');
 
+  // New state for word-level feedback and first-attempt tracking
+  const [wordResults, setWordResults] = useState<WordMatchResult[]>([]);
+  const [allWordsCorrect, setAllWordsCorrect] = useState(false);
+  const [isFirstAttempt, setIsFirstAttempt] = useState(true);
+  const [firstAttemptScores, setFirstAttemptScores] = useState<Record<number, number>>({});
+  const [macroComplete, setMacroComplete] = useState(false);
+
   const loadCurrentContent = useCallback(() => {
-    const result = getSubLevelContent(
-      gameProgress.currentReaderLevel,
-      gameProgress.currentMacroLevel,
-      gameProgress.currentSubLevel,
-      gameProgress.usedIndices
+    const content = getSequentialContent(
+      currentReaderLevel,
+      currentMacroLevel,
+      currentMicroLevel
     );
-    
-    // Update used indices
-    if (result.content && result.trackingKey) {
-      setGameProgress(prev => ({
-        ...prev,
-        usedIndices: {
-          ...prev.usedIndices,
-          [result.trackingKey]: [
-            ...(prev.usedIndices[result.trackingKey] || []),
-            result.selectedIndex
-          ]
-        }
-      }));
-    }
-    
-    setCurrentContent(result.content);
-    return result.content;
-  }, [gameProgress.currentReaderLevel, gameProgress.currentMacroLevel, gameProgress.currentSubLevel, gameProgress.usedIndices]);
+    setCurrentContent(content);
+    setWordResults([]);
+    setAllWordsCorrect(false);
+    setScore(null);
+    setIsFirstAttempt(true);
+    return content;
+  }, [currentReaderLevel, currentMacroLevel, currentMicroLevel]);
 
   const startPractice = useCallback(() => {
     setIsLoading(true);
-    
-    // Load initial content
     const content = loadCurrentContent();
-    
     if (content) {
-      setProgressMessage(`Starting ${getContentTypeLabel(gameProgress.currentSubLevel)} practice`);
+      setProgressMessage(`Starting ${getContentTypeForMicroLevel(currentMicroLevel)} practice`);
     } else {
       setProgressMessage('No content available for this level');
     }
-    
-    setTimeout(() => {
+    timerRefs.current.push(setTimeout(() => {
       setIsLoading(false);
       setProgressMessage('');
-    }, 1000);
-  }, [loadCurrentContent, gameProgress.currentSubLevel]);
+    }, 1000));
+  }, [loadCurrentContent, currentMicroLevel]);
 
   const submitAnswer = useCallback(async (audioUri: string) => {
     if (!currentContent) return;
@@ -81,110 +75,120 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
     setProgressMessage('Processing your pronunciation...');
 
     try {
-      // Get transcription
-      const speechService = new SpeechRecognitionService();
-      const transcriptionResult = await speechService.transcribeAudio(audioUri, currentContent.content);
+      const transcriptionResult = await speechRecognitionService.transcribeAudio(audioUri, currentContent.content);
       const transcription = transcriptionResult.text;
-      
-      // Check if no audio was detected (empty transcript)
+
       if (!transcription || transcription.trim() === '') {
         setIsLoading(false);
         setProgressMessage('');
         throw new Error('No audio detected. Please try again and speak clearly into the microphone.');
       }
-      
-      // Calculate pronunciation score
-      const scoreResult = calculatePronunciationScore(
-        currentContent.content, 
-        transcription
-      );
-      
+
+      // Use Azure's real scores if available, otherwise fall back to text-based calculation
+      const scoreResult = transcriptionResult.azureScores
+        ? {
+            phonemeAccuracy: Math.round(transcriptionResult.azureScores.accuracyScore),
+            stressIntonation: Math.round(transcriptionResult.azureScores.fluencyScore),
+            vowelClarity: Math.round(transcriptionResult.azureScores.completenessScore),
+            totalScore: Math.round(transcriptionResult.azureScores.pronScore),
+          }
+        : calculatePronunciationScore(currentContent.content, transcription);
       setScore(scoreResult);
 
-      // Update game progress
-      const progression = calculateProgression(scoreResult.totalScore, gameProgress.currentSubLevel);
-      
-      // Save score
-      const updatedScores = {
-        ...gameProgress.scores,
-        [currentContent.id]: {
-          ...scoreResult,
-          attempts: (gameProgress.scores[currentContent.id]?.attempts || 0) + 1
-        }
-      };
+      // Get word-level comparison
+      const results = speechRecognitionService.getWordLevelResults(currentContent.content, transcription);
+      setWordResults(results);
 
-      // Update progress
-      const newGameProgress: GameProgress = {
-        ...gameProgress,
-        currentSubLevel: progression.newSubLevel,
-        completedContent: [...gameProgress.completedContent, currentContent.id],
-        scores: updatedScores
-      };
+      const allCorrect = results.every(r => r.isCorrect);
+      setAllWordsCorrect(allCorrect);
 
-      // Check if macro level completed
-      if (progression.newSubLevel > 30) {
-        // Advance to next macro level
-        newGameProgress.currentMacroLevel = Math.min(gameProgress.currentMacroLevel + 1, 4) as 1 | 2 | 3 | 4;
-        newGameProgress.currentSubLevel = 1;
-        setProgressMessage(`Congratulations! Advanced to Macro Level ${newGameProgress.currentMacroLevel}`);
-      } else if (progression.action === 'advance') {
-        setProgressMessage(`Great job! Score: ${scoreResult.totalScore}% - Advancing to next sub-level`);
-      } else if (progression.action === 'stay') {
-        setProgressMessage(`Good effort! Score: ${scoreResult.totalScore}% - Practice this level again`);
-      } else {
-        setProgressMessage(`Score: ${scoreResult.totalScore}% - Let's try an easier level`);
+      // Record first attempt only
+      if (isFirstAttempt) {
+        const updatedScores = { ...firstAttemptScores, [currentMicroLevel]: scoreResult.totalScore };
+        setFirstAttemptScores(updatedScores);
+        setIsFirstAttempt(false);
       }
 
-      setGameProgress(newGameProgress);
-      
-      // Load new content after a delay
-      setTimeout(() => {
-        loadCurrentContent();
-        setProgressMessage('');
-      }, 3000);
-
+      if (allCorrect) {
+        setProgressMessage(`Score: ${scoreResult.totalScore}% - All words correct!`);
+      } else {
+        const mispronounced = results.filter(r => !r.isCorrect).map(r => r.expected);
+        setProgressMessage(`Some words need practice: ${mispronounced.join(', ')}`);
+      }
     } catch (error) {
-      console.error('Error processing recording:', error);
       setProgressMessage('Error processing recording. Please try again.');
-      setTimeout(() => setProgressMessage(''), 3000);
+      timerRefs.current.push(setTimeout(() => setProgressMessage(''), 3000));
     } finally {
       setIsLoading(false);
     }
-  }, [currentContent, gameProgress, loadCurrentContent]);
+  }, [currentContent, isFirstAttempt, firstAttemptScores, currentMicroLevel]);
 
-  const getContentTypeLabel = useCallback((subLevel?: number) => {
-    const level = subLevel || gameProgress.currentSubLevel;
+  // Advance to next micro-level (called by UI when allWordsCorrect)
+  const advanceToNext = useCallback(() => {
+    if (currentMicroLevel >= 30) {
+      setMacroComplete(true);
+      setProgressMessage('Macro Level Complete!');
+      return;
+    }
+    const nextLevel = currentMicroLevel + 1;
+    setCurrentMicroLevel(nextLevel);
+    setScore(null);
+    setWordResults([]);
+    setAllWordsCorrect(false);
+    setIsFirstAttempt(true);
+    setProgressMessage('');
+
+    // Load content for next micro-level
+    const content = getSequentialContent(currentReaderLevel, currentMacroLevel, nextLevel);
+    setCurrentContent(content);
+  }, [currentMicroLevel, currentReaderLevel, currentMacroLevel]);
+
+  // Retry current content (resets recording state but not first-attempt score)
+  const retryCurrentLevel = useCallback(() => {
+    setScore(null);
+    setWordResults([]);
+    setAllWordsCorrect(false);
+    setProgressMessage('');
+    // isFirstAttempt stays false — retries don't overwrite recorded score
+  }, []);
+
+  const getContentTypeLabel = useCallback((microLevel?: number) => {
+    const level = microLevel || currentMicroLevel;
     if (level <= 10) return 'Word';
-    if (level <= 20) return 'Sentence'; 
+    if (level <= 20) return 'Sentence';
     return 'Paragraph';
-  }, [gameProgress.currentSubLevel]);
+  }, [currentMicroLevel]);
 
   const getProgressInfo = useCallback(() => {
-    const { currentReaderLevel, currentMacroLevel, currentSubLevel } = gameProgress;
     const contentType = getContentTypeLabel();
-    
     let typeProgress = '';
-    if (currentSubLevel <= 10) {
-      typeProgress = `Word ${currentSubLevel} of 10`;
-    } else if (currentSubLevel <= 20) {
-      typeProgress = `Sentence ${currentSubLevel - 10} of 10`;
+    if (currentMicroLevel <= 10) {
+      typeProgress = `Word ${currentMicroLevel} of 10`;
+    } else if (currentMicroLevel <= 20) {
+      typeProgress = `Sentence ${currentMicroLevel - 10} of 10`;
     } else {
-      typeProgress = `Paragraph ${currentSubLevel - 20} of 10`;
+      typeProgress = `Paragraph ${currentMicroLevel - 20} of 10`;
     }
-
     return `Reader Level ${currentReaderLevel} • Macro Level ${currentMacroLevel} • ${typeProgress}`;
-  }, [gameProgress, getContentTypeLabel]);
+  }, [currentReaderLevel, currentMacroLevel, currentMicroLevel, getContentTypeLabel]);
 
   return {
-    currentReaderLevel: gameProgress.currentReaderLevel,
-    currentMacroLevel: gameProgress.currentMacroLevel,
-    currentSubLevel: gameProgress.currentSubLevel,
+    currentReaderLevel,
+    currentMacroLevel,
+    currentMicroLevel,
     currentContent,
     score,
     isLoading,
     progressMessage,
+    wordResults,
+    allWordsCorrect,
+    isFirstAttempt,
+    firstAttemptScores,
+    macroComplete,
     startPractice,
     submitAnswer,
+    advanceToNext,
+    retryCurrentLevel,
     getContentTypeLabel,
     getProgressInfo
   };
@@ -192,43 +196,35 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
 
 // Helper function to calculate pronunciation score
 function calculatePronunciationScore(expectedText: string, actualText: string): ScoreResult {
-  // This is a simplified scoring algorithm
-  // In a real implementation, you would use more sophisticated speech analysis
-  
   const expectedWords = expectedText.toLowerCase().split(/\s+/);
   const actualWords = actualText.toLowerCase().split(/\s+/);
-  
-  // Basic word matching for phoneme accuracy
+
   let matchedWords = 0;
   const minLength = Math.min(expectedWords.length, actualWords.length);
-  
+
   for (let i = 0; i < minLength; i++) {
     if (expectedWords[i] === actualWords[i]) {
       matchedWords++;
     } else {
-      // Check for partial matches (simplified)
       const similarity = calculateSimilarity(expectedWords[i], actualWords[i]);
       if (similarity > 0.7) {
         matchedWords += similarity;
       }
     }
   }
-  
-  // Calculate scores with some randomization for realistic simulation
+
   const baseAccuracy = (matchedWords / expectedWords.length) * 100;
-  const variance = Math.random() * 20 - 10; // ±10% variance
-  
-  const phonemeAccuracy = Math.max(0, Math.min(100, baseAccuracy + variance));
-  const stressIntonation = Math.max(0, Math.min(100, baseAccuracy + (Math.random() * 15 - 7.5)));
-  const vowelClarity = Math.max(0, Math.min(100, baseAccuracy + (Math.random() * 10 - 5)));
-  
-  // Weighted average: 60% phonemes, 25% stress, 15% vowels
+
+  const phonemeAccuracy = Math.max(0, Math.min(100, baseAccuracy));
+  const stressIntonation = Math.max(0, Math.min(100, baseAccuracy));
+  const vowelClarity = Math.max(0, Math.min(100, baseAccuracy));
+
   const totalScore = Math.round(
-    (phonemeAccuracy * 0.6) + 
-    (stressIntonation * 0.25) + 
+    (phonemeAccuracy * 0.6) +
+    (stressIntonation * 0.25) +
     (vowelClarity * 0.15)
   );
-  
+
   return {
     phonemeAccuracy: Math.round(phonemeAccuracy),
     stressIntonation: Math.round(stressIntonation),
@@ -237,29 +233,18 @@ function calculatePronunciationScore(expectedText: string, actualText: string): 
   };
 }
 
-// Simple string similarity function
 function calculateSimilarity(str1: string, str2: string): number {
   const longer = str1.length > str2.length ? str1 : str2;
   const shorter = str1.length > str2.length ? str2 : str1;
-  
   if (longer.length === 0) return 1.0;
-  
   const editDistance = levenshteinDistance(longer, shorter);
   return (longer.length - editDistance) / longer.length;
 }
 
-// Levenshtein distance calculation
 function levenshteinDistance(str1: string, str2: string): number {
-  const matrix = [];
-  
-  for (let i = 0; i <= str2.length; i++) {
-    matrix[i] = [i];
-  }
-  
-  for (let j = 0; j <= str1.length; j++) {
-    matrix[0][j] = j;
-  }
-  
+  const matrix: number[][] = [];
+  for (let i = 0; i <= str2.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= str1.length; j++) matrix[0][j] = j;
   for (let i = 1; i <= str2.length; i++) {
     for (let j = 1; j <= str1.length; j++) {
       if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
@@ -273,6 +258,5 @@ function levenshteinDistance(str1: string, str2: string): number {
       }
     }
   }
-  
   return matrix[str2.length][str1.length];
 }

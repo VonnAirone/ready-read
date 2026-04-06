@@ -9,11 +9,7 @@ export function initializeApp() {
   const contentLoaded = populateGameContent();
   
   if (contentLoaded) {
-    console.log('✅ Game content loaded successfully!');
-    console.log('📚 4-Level Reader System ready');
-    console.log('🎮 Practice game system initialized');
   } else {
-    console.log('❌ Failed to load game content');
   }
 }
 

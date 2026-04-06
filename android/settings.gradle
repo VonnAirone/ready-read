@@ -44,7 +44,7 @@ if (getRNMinorVersion() >= 75) {
   }
 }
 
-rootProject.name = 'FeedbackAPK'
+rootProject.name = 'Ready Read!'
 
 dependencyResolutionManagement {
   versionCatalogs {

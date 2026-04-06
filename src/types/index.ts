@@ -46,6 +46,15 @@ export interface LeaderboardEntry {
   completedWords: number;
 }
 
+export interface WordMatchResult {
+  expected: string;
+  spoken: string | null;
+  isCorrect: boolean;
+  similarity: number;
+  /** Per-phoneme accuracy scores from Azure (present only on the Azure path) */
+  phonemes?: { phoneme: string; accuracyScore: number }[];
+}
+
 export type AuthScreens = 'Login' | 'Signup' | 'TeacherSignup';
 export type TeacherScreens = 'RoomGenerator' | 'Room' | 'AddPronunciation' | 'Modify' | 'GameMenu' | 'Leaderboard';
 export type StudentScreens = 'CreatePlayerName' | 'Join' | 'PronunciationRoom' | 'GameMenu' | 'Room' | 'Start';
@@ -55,18 +64,26 @@ export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
   TeacherSignup: undefined;
-  
+
   // Teacher
+  TeacherDashboard: undefined;
+  StudentList: undefined;
+  AssessmentResults: undefined;
+  RoomStudents: { roomId: string; roomCode: string; roomName: string };
   RoomGenerator: undefined;
   Room: { roomData: Room };
   AddPronunciation: { roomId?: string; roomCode?: string; roomName?: string };
   Modify: { roomId: string };
   GameMenu: undefined;
-  Leaderboard: { roomId: string; roomCode: string; roomName: string };
-  
+  Leaderboard: { roomCode: string; roomName: string };
+
   // Student
   CreatePlayerName: undefined;
   Join: undefined;
   PronunciationRoom: { roomData: Room };
+  Confirm: undefined;
+  PersonalProgress: undefined;
+  PersonalPracticeRoom: undefined;
+  PracticeGame: undefined;
   Start: { roomData: Room };
 };

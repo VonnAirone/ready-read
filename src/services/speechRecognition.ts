@@ -1,41 +1,59 @@
-import { getGoogleSpeechService } from './googleSpeech';
+import { getAzureSpeechService, AzureWordResult } from './azureSpeech';
+import { WordMatchResult } from '../types';
 
 export interface TranscriptionResult {
   text: string;
   confidence: number;
   success: boolean;
   error?: string;
+  azureScores?: {
+    accuracyScore: number;
+    fluencyScore: number;
+    completenessScore: number;
+    pronScore: number;
+  };
 }
 
 export class SpeechRecognitionService {
+  // Cached word results from the last assessPronunciation call
+  private lastWordResults: AzureWordResult[] = [];
+
   async transcribeAudio(audioUri: string, expectedText?: string): Promise<TranscriptionResult> {
     try {
-      console.log('🎤 Starting transcription for URI:', audioUri);
+      const service = getAzureSpeechService();
 
-      const speechService = getGoogleSpeechService();
+      if (expectedText && expectedText.trim()) {
+        // Full pronunciation assessment — returns word-level scores
+        const result = await service.assessPronunciation(audioUri, expectedText);
+        this.lastWordResults = result.words;
 
-      // Make the transcription request (retry logic handles failures)
-      const result = await speechService.transcribeAudio(audioUri);
+        if (!result.recognizedText) {
+          return { text: '', confidence: 0, success: false, error: 'No transcription text received' };
+        }
 
-      if (result.transcript && result.transcript.trim()) {
-        console.log('Transcription successful:', result.transcript);
-        
         return {
-          text: result.transcript,
-          confidence: result.confidence || 0,
+          text: result.recognizedText,
+          confidence: result.accuracyScore / 100,
           success: true,
+          azureScores: {
+            accuracyScore: result.accuracyScore,
+            fluencyScore: result.fluencyScore,
+            completenessScore: result.completenessScore,
+            pronScore: result.pronScore,
+          },
         };
       } else {
-        console.warn('Transcription returned empty result');
-        return {
-          text: '',
-          confidence: 0,
-          success: false,
-          error: 'No transcription text received',
-        };
+        // Plain transcription (no reference text available)
+        this.lastWordResults = [];
+        const result = await service.transcribeOnly(audioUri);
+
+        if (!result.text) {
+          return { text: '', confidence: 0, success: false, error: 'No transcription text received' };
+        }
+
+        return { text: result.text, confidence: result.confidence, success: true };
       }
     } catch (error) {
-      console.error('Speech recognition error:', error);
       return {
         text: '',
         confidence: 0,
@@ -45,55 +63,79 @@ export class SpeechRecognitionService {
     }
   }
 
+  /**
+   * Calculates overall accuracy (0–100) between expected and transcribed text.
+   * Uses Azure scores when available, otherwise Levenshtein-based comparison.
+   */
   calculateAccuracy(original: string, transcribed: string): number {
-    if (!original || !transcribed) return 0;
-
-    // Normalize strings for comparison
-    const normalizeText = (text: string) => 
-      text.toLowerCase()
-          .replace(/[^\w\s]/g, '') // Remove punctuation
-          .replace(/\s+/g, ' ')    // Normalize whitespace
-          .trim();
-
-    const originalWords = normalizeText(original).split(' ');
-    const transcribedWords = normalizeText(transcribed).split(' ');
-
-    if (originalWords.length === 0) return 0;
-
-    // Simple word-based accuracy calculation
-    let correctWords = 0;
-    const maxLength = Math.max(originalWords.length, transcribedWords.length);
-
-    for (let i = 0; i < Math.min(originalWords.length, transcribedWords.length); i++) {
-      if (originalWords[i] === transcribedWords[i]) {
-        correctWords++;
-      }
-    }
-
-    // Account for length differences
-    const accuracy = (correctWords / originalWords.length) * 100;
-    return Math.max(0, Math.min(100, accuracy));
+    const results = this.getWordLevelResults(original, transcribed);
+    if (results.length === 0) return 0;
+    const correct = results.filter(r => r.isCorrect).length;
+    return (correct / results.length) * 100;
   }
 
-  getKeyWordAccuracy(original: string, transcribed: string, keyWords: string[]): number {
-    if (!keyWords || keyWords.length === 0) {
-      return this.calculateAccuracy(original, transcribed);
+  /**
+   * Calculates accuracy (0–100) based only on a specific set of keywords.
+   * Useful when only key words matter for scoring (e.g. word-level assessment items).
+   */
+  getKeyWordAccuracy(original: string, transcribed: string, keywords: string[]): number {
+    if (keywords.length === 0) return this.calculateAccuracy(original, transcribed);
+    const normalize = (w: string) => w.toLowerCase().replace(/[^\w]/g, '');
+    const transcribedWords = transcribed.toLowerCase().split(/\s+/).map(normalize);
+    const matched = keywords.filter(kw => {
+      const normalized = normalize(kw);
+      return transcribedWords.some(w => this.wordSimilarity(w, normalized) >= 0.70);
+    });
+    return (matched.length / keywords.length) * 100;
+  }
+
+  /**
+   * Returns per-word pronunciation results.
+   * Uses Azure word scores when available (set after assessPronunciation),
+   * falls back to Levenshtein comparison otherwise.
+   */
+  getWordLevelResults(original: string, transcribed: string): WordMatchResult[] {
+    if (this.lastWordResults.length > 0) {
+      return this.lastWordResults.map(w => ({
+        expected: w.word,
+        spoken: w.errorType === 'None' ? w.word : null,
+        isCorrect: w.accuracyScore >= 70 && w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission',
+        similarity: w.accuracyScore / 100,
+        phonemes: w.phonemes,
+      }));
     }
 
-    const normalizeText = (text: string) => 
-      text.toLowerCase().replace(/[^\w\s]/g, '').trim();
+    // Fallback: text-based Levenshtein comparison
+    const normalizeText = (text: string) =>
+      text.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
 
-    const transcribedNormalized = normalizeText(transcribed);
-    let correctKeyWords = 0;
+    const expectedWords = normalizeText(original).split(' ').filter(w => w.length > 0);
+    const transcribedWords = normalizeText(transcribed).split(' ').filter(w => w.length > 0);
 
-    for (const keyWord of keyWords) {
-      const normalizedKeyWord = normalizeText(keyWord);
-      if (transcribedNormalized.includes(normalizedKeyWord)) {
-        correctKeyWords++;
+    return expectedWords.map((expected, i) => {
+      const spoken = transcribedWords[i] || null;
+      if (!spoken) {
+        return { expected, spoken: null, isCorrect: false, similarity: 0 };
+      }
+      const sim = this.wordSimilarity(expected, spoken);
+      return { expected, spoken, isCorrect: sim >= 0.70, similarity: sim };
+    });
+  }
+
+  private wordSimilarity(a: string, b: string): number {
+    if (a === b) return 1;
+    const maxLen = Math.max(a.length, b.length);
+    if (maxLen === 0) return 1;
+
+    const matrix: number[][] = Array.from({ length: b.length + 1 }, (_, i) => [i]);
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        if (b[i - 1] === a[j - 1]) matrix[i][j] = matrix[i - 1][j - 1];
+        else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
       }
     }
-
-    return (correctKeyWords / keyWords.length) * 100;
+    return 1 - matrix[b.length][a.length] / maxLen;
   }
 }
 

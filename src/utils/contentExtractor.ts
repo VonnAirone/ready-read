@@ -171,7 +171,6 @@ export class MockPDFExtractor implements PDFContentExtractor {
     // 2. Extract text content
     // 3. Parse and organize content by type (words, sentences, paragraphs)
     
-    console.log(`Extracting content from ${pdfPath} for Reader Level ${readerLevel}`);
     
     // Mock extracted content based on reader level
     const sampleContent = this.generateSampleContent(readerLevel);

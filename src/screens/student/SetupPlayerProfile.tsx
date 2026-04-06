@@ -7,15 +7,13 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  SafeAreaView,
-  StatusBar,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "../../services/firebase";
-import { Ionicons, MaterialIcons } from "@expo/vector-icons"; // ✅ for edit icon
-import { COLORS, GRADIENTS } from "../../constants/theme";
+import { Ionicons } from "@expo/vector-icons";
+import { COLORS } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
 
 export default function SetupPlayerProfile({ navigation }: any) {
@@ -33,32 +31,22 @@ export default function SetupPlayerProfile({ navigation }: any) {
         setEmail(user.email);
 
         try {
-          console.log("🔍 Checking player name for user:", user.uid);
           const playerRef = doc(db, "Playername", user.uid);
           const playerSnap = await getDoc(playerRef);
 
-          console.log("📋 Player document exists:", playerSnap.exists());
           if (playerSnap.exists()) {
             const data = playerSnap.data();
-            console.log("📊 Player document data:", data);
             const existingName = data?.playerName;
             if (existingName) {
-              console.log("✅ Found existing player name:", existingName);
               setPlayerName(existingName);
               setIsExisting(true);
-              // If user has a name, they shouldn't be on this screen - navigate to dashboard
               setTimeout(() => {
                 navigation.replace("GameMenu");
-              }, 1000); // Small delay to show loading
-              return; // Don't set loading to false yet
-            } else {
-              console.log("❌ No player name found in document");
+              }, 1000);
+              return;
             }
-          } else {
-            console.log("📭 No player document found");
           }
         } catch (error) {
-          console.error("❌ Error checking player name:", error);
         }
         
         // Only set loading to false if no existing player name
@@ -110,7 +98,6 @@ export default function SetupPlayerProfile({ navigation }: any) {
       navigation.replace("GameMenu");
     } catch (error: any) {
       Alert.alert("Error", "Failed to save player name. Please try again.");
-      console.error("Save error:", error);
     } finally {
       setSaving(false);
     }
@@ -130,9 +117,7 @@ export default function SetupPlayerProfile({ navigation }: any) {
   };
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         {loading ? (
           // Loading state while checking for existing player name
           <View style={styles.loadingContainer}>
@@ -184,19 +169,11 @@ export default function SetupPlayerProfile({ navigation }: any) {
             </View>
           </>
         )}
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
   topBar: {
     paddingTop: 20,
     paddingBottom: 20,

@@ -7,16 +7,14 @@ import {
   Alert,
   StyleSheet,
   ActivityIndicator,
-  SafeAreaView,
-  StatusBar,
 } from "react-native";
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../services/firebase";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { getFontFamily } from "../../../styles/fonts";
-import { COLORS, GRADIENTS } from "../../constants/theme";
+import { COLORS } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
 
 export default function TeacherSignup({ navigation }: any) {
   const [form, setForm] = useState({
@@ -73,9 +71,7 @@ export default function TeacherSignup({ navigation }: any) {
   };
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         <View style={styles.content}>
           <View style={styles.box}>
             <View style={styles.header}>
@@ -153,19 +149,11 @@ export default function TeacherSignup({ navigation }: any) {
             </TouchableOpacity>
           </View>
         </View>
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
   content: {
     flex: 1,
     justifyContent: "center",

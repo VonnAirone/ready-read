@@ -4,8 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
-  StatusBar,
   ScrollView,
   Dimensions,
   Alert,
@@ -21,7 +19,8 @@ import {
   doc, 
   getDoc 
 } from 'firebase/firestore';
-import { COLORS, GRADIENTS } from '../../constants/theme';
+import { COLORS } from '../../constants/theme';
+import { ScreenLayout } from '../../components/ScreenLayout';
 import { getFontFamily } from '../../../styles/fonts';
 
 const { width } = Dimensions.get('window');
@@ -119,7 +118,6 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
       setRecentActivity([]);
 
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
     } finally {
       setLoading(false);
     }
@@ -192,9 +190,7 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
   );
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
@@ -280,18 +276,11 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
             )}
           </View>
         </ScrollView>
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

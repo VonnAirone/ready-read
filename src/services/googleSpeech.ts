@@ -4,9 +4,11 @@
  * Optimized for React Native applications
  */
 
+import * as FileSystem from 'expo-file-system';
+
 interface GoogleSpeechConfig {
-  encoding: 'LINEAR16' | 'FLAC' | 'MP3' | 'WEBM_OPUS' | 'WAV';
-  sampleRateHertz: number;
+  encoding: 'ENCODING_UNSPECIFIED' | 'LINEAR16' | 'FLAC' | 'MP3' | 'WEBM_OPUS' | 'WAV';
+  sampleRateHertz?: number;
   languageCode: string;
   enableAutomaticPunctuation: boolean;
   model: 'latest_long' | 'latest_short' | 'command_and_search';
@@ -30,64 +32,16 @@ export class GoogleSpeechService {
    * Debug method to test API connectivity and audio data
    */
   async debugTranscription(audioUri: string): Promise<void> {
-    console.log('🔍 DEBUG: Starting transcription analysis...');
-    
     try {
-      // Test 1: Check audio file
-      const response = await fetch(audioUri);
-      const blob = await response.blob();
-      console.log('🔍 Audio file stats:', {
-        size: blob.size,
-        type: blob.type,
-        uri: audioUri
-      });
-      
-      if (blob.size === 0) {
-        console.log('❌ Audio file is empty!');
+      // Check file info using expo-file-system (reliable for local URIs in React Native)
+      const fileInfo = await FileSystem.getInfoAsync(audioUri);
+      if (!fileInfo.exists || fileInfo.size === 0) {
         return;
       }
-      
-      // Test 2: Check base64 conversion
+
       const base64 = await this.convertAudioToBase64(audioUri);
-      console.log('🔍 Base64 conversion stats:', {
-        length: base64.length,
-        estimatedAudioSeconds: this.estimateAudioDuration(base64),
-        firstChars: base64.substring(0, 50) + '...'
-      });
-      
-      // Test 3: Make minimal API request
-      const testConfig = {
-        encoding: 'MP3' as const,
-        languageCode: 'en-US'
-      };
-      
-      const requestPayload = {
-        config: testConfig,
-        audio: { content: base64 }
-      };
-      
-      console.log('🔍 Making test API request...');
-      const apiResponse = await fetch(
-        `https://speech.googleapis.com/v1/speech:recognize?key=${this.apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestPayload)
-        }
-      );
-      
-      const data = await apiResponse.json();
-      console.log('🔍 API Response Analysis:', {
-        status: apiResponse.status,
-        ok: apiResponse.ok,
-        hasResults: !!data.results,
-        resultsCount: data.results ? data.results.length : 0,
-        responseKeys: Object.keys(data),
-        fullResponse: data
-      });
-      
     } catch (error) {
-      console.error('🔍 Debug analysis failed:', error);
+      const errMsg = error instanceof Error ? error.message : String(error);
     }
   }
 
@@ -111,9 +65,7 @@ export class GoogleSpeechService {
       
       try {
         if (attempt === 1) {
-          console.log(`📡 Making API request with ${requestPayload.config.encoding} encoding`);
         } else {
-          console.log(`🔄 Retry attempt ${attempt}/${maxRetries + 1}`);
         }
         
         const response = await fetch(
@@ -135,9 +87,7 @@ export class GoogleSpeechService {
         if (response.ok) {
           const duration = ((Date.now() - startTime) / 1000).toFixed(2);
           if (attempt > 1) {
-            console.log(`✅ Request succeeded on attempt ${attempt} (${duration}s total)`);
           } else {
-            console.log(`✅ Request succeeded (${duration}s)`);
           }
           return response;
         }
@@ -146,7 +96,6 @@ export class GoogleSpeechService {
         if (response.status >= 400 && response.status < 500) {
           clearTimeout(timeoutId);
           const errorData = await response.json().catch(() => ({}));
-          console.error(`❌ Client error ${response.status}:`, errorData);
           return response; // Return to handle error upstream
         }
 
@@ -154,11 +103,9 @@ export class GoogleSpeechService {
         clearTimeout(timeoutId);
         const errorText = await response.text();
         lastError = new Error(`Server error HTTP ${response.status}: ${errorText}`);
-        console.warn(`⚠️ Attempt ${attempt}/${maxRetries + 1} failed:`, lastError.message);
 
         if (attempt <= maxRetries) {
           const delay = Math.pow(2, attempt - 1) * 1000; // Exponential backoff: 1s, 2s, 4s, 8s
-          console.log(`⏳ Waiting ${delay}ms before retry...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
 
@@ -169,18 +116,15 @@ export class GoogleSpeechService {
         const errorType = isTimeout ? 'Timeout' : 'Network';
         
         lastError = networkError;
-        console.warn(`⚠️ Attempt ${attempt}/${maxRetries + 1} failed with ${errorType} error:`, networkError.message);
 
         if (attempt <= maxRetries) {
           const delay = Math.pow(2, attempt - 1) * 1000;
-          console.log(`⏳ Waiting ${delay}ms before retry...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
     }
 
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.error(`❌ All ${maxRetries + 1} attempts failed after ${totalTime}s`);
     throw lastError || new Error('All retry attempts failed');
   }
 
@@ -192,12 +136,11 @@ export class GoogleSpeechService {
     config: Partial<GoogleSpeechConfig> = {}
   ): Promise<TranscriptionResult> {
     try {
-      // Default configuration - Use WEBM_OPUS for better format handling
-      // WEBM_OPUS is more flexible and can process M4A/AAC recordings
+      // Default configuration - use ENCODING_UNSPECIFIED so Google auto-detects
+      // the audio format from the file headers (works with M4A/AAC recordings)
       const defaultConfig: GoogleSpeechConfig = {
-        encoding: 'WEBM_OPUS',
-        sampleRateHertz: 16000, // Will be ignored for WEBM_OPUS, but kept for compatibility
-        languageCode: 'en-US',
+        encoding: 'ENCODING_UNSPECIFIED',
+        languageCode: 'en-PH',
         enableAutomaticPunctuation: true,
         model: 'latest_short'
       };
@@ -214,14 +157,8 @@ export class GoogleSpeechService {
 
       // Estimate audio duration and validate minimum length
       const estimatedDuration = this.estimateAudioDuration(audioBase64);
-      console.log('📊 Audio stats:', {
-        base64Length: audioBase64.length,
-        estimatedDuration: `${estimatedDuration.toFixed(2)}s`,
-        encoding: finalConfig.encoding
-      });
 
       if (estimatedDuration < 0.5) {
-        console.warn('⚠️ Audio may be too short for reliable transcription (<0.5s)');
       }
 
       // Prepare request payload
@@ -232,156 +169,54 @@ export class GoogleSpeechService {
         }
       };
 
-      // Log request details for debugging
-      console.log('Making API request to Google Cloud Speech:', {
-        url: `https://speech.googleapis.com/v1/speech:recognize?key=${this.apiKey.substring(0, 10)}...`,
-        config: finalConfig,
-        audioContentLength: audioBase64.length
-      });
-
-      // Log the full request payload (excluding audio content for readability)
-      console.log('Request payload structure:', {
-        config: requestPayload.config,
-        audioContentType: typeof requestPayload.audio.content,
-        audioContentLength: requestPayload.audio.content.length
-      });
-
       // Make API request to Google Cloud Speech with retry logic
       const response = await this.makeRequestWithRetry(requestPayload);
 
       const data = await response.json();
 
       if (!response.ok) {
-        console.error('Google Speech API Error Response:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: data.error,
-          data: data
-        });
         throw new Error(data.error?.message || `Google Speech API error: ${response.status} ${response.statusText}`);
       }
-
-      console.log('Google Speech API Response:', JSON.stringify(data, null, 2));
-
-      // Detailed response analysis
-      console.log('Response analysis:', {
-        hasResults: !!data.results,
-        resultsLength: data.results ? data.results.length : 0,
-        fullResponse: data
-      });
 
       // Extract transcription result
       if (data.results && data.results.length > 0) {
         const result = data.results[0];
-        console.log('First result:', JSON.stringify(result, null, 2));
-        
         if (result.alternatives && result.alternatives.length > 0) {
           const alternative = result.alternatives[0];
-          console.log('Transcription successful:', {
-            transcript: alternative.transcript,
-            confidence: alternative.confidence
-          });
-          
           return {
             transcript: alternative.transcript.trim(),
             confidence: alternative.confidence || 0
           };
         } else {
-          console.warn('No alternatives found in first result');
-          return {
-            transcript: '',
-            confidence: 0
-          };
+          return { transcript: '', confidence: 0 };
         }
       } else {
-        console.warn('No transcription results returned from Google Speech API');
-        console.log('Response keys:', Object.keys(data));
-        return {
-          transcript: '',
-          confidence: 0
-        };
+        return { transcript: '', confidence: 0 };
       }
 
     } catch (error) {
-      console.error('Google Speech transcription error:', {
-        message: error.message,
-        stack: error.stack,
-        error: error
-      });
-      throw new Error(`Transcription failed: ${error.message}`);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      throw new Error(`Transcription failed: ${errMsg}`);
     }
   }
 
   /**
-   * Convert audio file to base64 string
+   * Convert audio file to base64 string using expo-file-system
    */
   private async convertAudioToBase64(audioUri: string): Promise<string> {
     try {
-      console.log('Converting audio to base64, URI:', audioUri);
-      
-      // For React Native, we'll read the file and convert to base64
-      const response = await fetch(audioUri);
-      console.log('Fetch response status:', response.status, response.ok);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch audio file: ${response.status} ${response.statusText}`);
-      }
-      
-      const blob = await response.blob();
-      console.log('Blob created, size:', blob.size, 'type:', blob.type);
-      
-      if (blob.size === 0) {
-        throw new Error('Audio file is empty');
-      }
-      
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64 = reader.result as string;
-          if (!base64) {
-            reject(new Error('Failed to convert audio to base64'));
-            return;
-          }
-          
-          // Remove data URL prefix (data:audio/xxx;base64,)
-          let base64Data = base64.split(',')[1] || base64;
-          console.log('✅ Base64 conversion successful, length:', base64Data?.length || 0);
-          
-          if (!base64Data || base64Data.length === 0) {
-            reject(new Error('Base64 conversion resulted in empty data'));
-            return;
-          }
-          
-          // Send complete audio file - WEBM_OPUS encoding handles various formats
-          console.log('📦 Sending complete audio file with WEBM_OPUS encoding');
-          
-          // Validate base64 data
-          try {
-            const audioBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-            console.log('📊 Audio file stats:', {
-              totalBytes: audioBytes.length,
-              base64Length: base64Data.length,
-              estimatedKB: (audioBytes.length / 1024).toFixed(2)
-            });
-            
-            if (audioBytes.length < 100) {
-              console.warn('⚠️ Audio file suspiciously small (<100 bytes)');
-            }
-          } catch (analysisError) {
-            console.warn('⚠️ Could not validate audio file:', analysisError);
-          }
-          
-          resolve(base64Data);
-        };
-        reader.onerror = (error) => {
-          console.error('FileReader error:', error);
-          reject(new Error('FileReader failed to process audio'));
-        };
-        reader.readAsDataURL(blob);
+      const base64Data = await FileSystem.readAsStringAsync(audioUri, {
+        encoding: FileSystem.EncodingType.Base64,
       });
+
+      if (!base64Data || base64Data.length === 0) {
+        throw new Error('Audio conversion resulted in empty data');
+      }
+
+      return base64Data;
     } catch (error) {
-      console.error('Audio conversion error:', error);
-      throw new Error(`Audio conversion failed: ${error.message}`);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      throw new Error(`Audio conversion failed: ${errMsg}`);
     }
   }
 
@@ -390,10 +225,9 @@ export class GoogleSpeechService {
    */
   static getPronunciationConfig(): Partial<GoogleSpeechConfig> {
     return {
-      encoding: 'WEBM_OPUS', // Flexible encoding that handles M4A/AAC
-      model: 'latest_short', // Best for short pronunciations
-      enableAutomaticPunctuation: false, // More accurate for individual words
-      // Note: sampleRateHertz not needed for WEBM_OPUS - Google auto-detects
+      encoding: 'ENCODING_UNSPECIFIED',
+      model: 'latest_short',
+      enableAutomaticPunctuation: false,
     };
   }
 
@@ -402,10 +236,9 @@ export class GoogleSpeechService {
    */
   static getPassageConfig(): Partial<GoogleSpeechConfig> {
     return {
-      encoding: 'WEBM_OPUS', // Flexible encoding that handles M4A/AAC
-      model: 'latest_long', // Better for longer speech
-      enableAutomaticPunctuation: true, // helpful for passages
-      // Note: sampleRateHertz not needed for WEBM_OPUS - Google auto-detects
+      encoding: 'ENCODING_UNSPECIFIED',
+      model: 'latest_long',
+      enableAutomaticPunctuation: true,
     };
   }
 }

@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import {
   View,
   TextInput,
-  Button,
   Alert,
   StyleSheet,
   ScrollView,
@@ -11,11 +10,12 @@ import {
   Text,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { COLORS } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
 import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../../services/firebase";
 import { getFontFamily } from "../../../styles/fonts";
-import { COLORS } from "../../constants/theme";
 
 export default function Signup({ navigation }: any) {
   const [email, setEmail] = useState("");
@@ -27,6 +27,11 @@ export default function Signup({ navigation }: any) {
   const [loading, setLoading] = useState(false);
 
 const handleSignup = async () => {
+  if (!name.trim() || !email.trim() || !password) {
+    Alert.alert("Error", "Please fill in all fields.");
+    return;
+  }
+
   if (password !== confirmPassword) {
     Alert.alert("Error", "Passwords do not match.");
     return;
@@ -42,8 +47,8 @@ const handleSignup = async () => {
       {
         uid: user.uid,
         role: "student",
-        name,        // or keep as playerName if you prefer
-        email,
+        name: name.trim(),
+        email: email.trim(),
         createdAt: new Date(),
       },
       { merge: false }
@@ -79,7 +84,8 @@ const handleSignup = async () => {
 };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScreenLayout>
+    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <View style={styles.box}>
         <View style={styles.header}>
           <Text style={styles.title}>Create an Account</Text>
@@ -167,18 +173,27 @@ const handleSignup = async () => {
         </TouchableOpacity>
       </View>
     </ScrollView>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
   },
   box: {
-    width: '90%',
+    width: '100%',
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 30,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 10,
   },
   header: {
     marginBottom: 20,

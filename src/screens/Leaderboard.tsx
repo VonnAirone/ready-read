@@ -19,7 +19,7 @@ import {
   doc,
   getDocs,
 } from "firebase/firestore";
-import { db, auth } from "./services/firebase";
+import { db, auth } from "../services/firebase";
 
 type Player = {
   id: string;
@@ -41,26 +41,20 @@ const { roomCode, roomName } = route.params || {};
   const [authorized, setAuthorized] = useState(false);
 
 useEffect(() => {
-  const fetchLeaderboard = async () => {
-    setLoading(true);
-    const user = auth.currentUser;
+  const user = auth.currentUser;
 
-    if (!user || !roomCode) {
-      setAuthorized(false);
-      setLoading(false);
-      return;
-    }
+  if (!user || !roomCode) {
+    setAuthorized(false);
+    setLoading(false);
+    return;
+  }
 
-    try {
-      // ✅ Query the room document by roomCode and createdBy
-      const roomQuery = query(
-        collection(db, "GenerateRoom"),
-        where("roomCode", "==", roomCode),
-        where("createdBy", "==", user.uid) // ensure teacher owns it
-      );
+  setLoading(true);
 
-      const roomSnap = await getDocs(roomQuery);
+  let unsubscribeSnapshot: (() => void) | undefined;
 
+  getDocs(query(collection(db, "GenerateRoom"), where("roomCode", "==", roomCode)))
+    .then((roomSnap) => {
       if (roomSnap.empty) {
         setAuthorized(false);
         setLoading(false);
@@ -69,7 +63,6 @@ useEffect(() => {
 
       setAuthorized(true);
 
-      // ✅ Fetch students results for this room only
       const studentsQuery = query(
         collection(db, "StudentResultJoin"),
         where("roomCode", "==", roomCode),
@@ -77,7 +70,7 @@ useEffect(() => {
         limit(50)
       );
 
-      const unsubscribe = onSnapshot(studentsQuery, (snapshot) => {
+      unsubscribeSnapshot = onSnapshot(studentsQuery, (snapshot) => {
         let data: Player[] = snapshot.docs.map((doc) => ({
           id: doc.id,
           name: doc.data().name || doc.data().playerName || "Unknown",
@@ -92,21 +85,18 @@ useEffect(() => {
         setPlayers(data);
         setLoading(false);
       });
-
-      return () => unsubscribe();
-    } catch (err) {
-      console.error(err);
+    })
+    .catch((err) => {
       setAuthorized(false);
       setLoading(false);
-    }
-  };
+    });
 
-  fetchLeaderboard();
+  return () => unsubscribeSnapshot?.();
 }, [roomCode, difficultyFilter]);
 
 
   const renderItem = ({ item, index }: { item: Player; index: number }) => {
-    const maxScore = players.length > 0 ? players[0].score : 1;
+    const maxScore = players.length > 0 && players[0].score > 0 ? players[0].score : 1;
     const percentage = Math.round((item.score / maxScore) * 100);
 
     let trophy = "";
@@ -192,7 +182,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f7f7f7",
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
   loadingContainer: {
     flex: 1,

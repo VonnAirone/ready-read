@@ -82,7 +82,6 @@ export default function ModifyPronunciation() {
       Alert.alert("Updated", "Word updated successfully.");
       setEditingId(null);
     } catch (err) {
-      console.error("Error updating pronunciation:", err);
     }
   };
 
@@ -91,7 +90,6 @@ export default function ModifyPronunciation() {
       await deleteDoc(doc(db, "PronunciationRoom", id));
       Alert.alert("Deleted", "Word deleted successfully.");
     } catch (err) {
-      console.error("Error deleting pronunciation:", err);
     }
   };
 

@@ -4,11 +4,8 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
-  StatusBar,
   ScrollView,
   ActivityIndicator,
-  FlatList,
   Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,7 +19,8 @@ import {
   doc, 
   getDoc 
 } from 'firebase/firestore';
-import { COLORS, GRADIENTS } from '../../constants/theme';
+import { COLORS } from '../../constants/theme';
+import { ScreenLayout } from '../../components/ScreenLayout';
 import { getFontFamily } from '../../../styles/fonts';
 
 interface StudentData {
@@ -111,7 +109,6 @@ export default function StudentList({ navigation }: StudentListProps) {
             scores: progressData.scores || [],
           });
         } catch (error) {
-          console.error('Error processing student:', error);
         }
       }
 
@@ -120,7 +117,6 @@ export default function StudentList({ navigation }: StudentListProps) {
       setStudents(studentsList);
 
     } catch (error) {
-      console.error('Error loading student data:', error);
     } finally {
       setLoading(false);
     }
@@ -201,22 +197,17 @@ export default function StudentList({ navigation }: StudentListProps) {
 
   if (loading) {
     return (
-      <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="white" />
-            <Text style={styles.loadingText}>Loading students...</Text>
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
+      <ScreenLayout>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="white" />
+          <Text style={styles.loadingText}>Loading students...</Text>
+        </View>
+      </ScreenLayout>
     );
   }
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity 
@@ -384,8 +375,7 @@ export default function StudentList({ navigation }: StudentListProps) {
             </View>
           </Modal>
         )}
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
@@ -451,12 +441,6 @@ const calculateDiagnosticStats = (student: StudentData) => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -55,3 +55,11 @@ export const getScoreColor = (score: number): string => {
   if (score >= 60) return '#FF9800'; // Orange
   return '#F44336'; // Red
 };
+
+// Get reading scale label based on average score (thresholds TBD per research)
+export const getReadingScaleLabel = (avgScore: number): string => {
+  if (avgScore >= 90) return 'Independent';
+  if (avgScore >= 75) return 'Instructional';
+  if (avgScore >= 60) return 'Frustration';
+  return 'Non-Reader';
+};

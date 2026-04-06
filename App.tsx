@@ -31,8 +31,16 @@ import Leaderboard from "./src/screens/Leaderboard";
 import Confirm from "./src/screens/student/Confirm";
 import PersonalProgress from "./src/screens/student/PersonalProgress";
 import PersonalPracticeRoom from "./src/screens/student/PersonalPracticeRoom";
-import PracticeGame from "./src/screens/student/PracticeGame";
 import populateGameContent from "./src/data/demoContent";
+import { initializeAzureSpeech } from "./src/services/azureSpeech";
+import { AZURE_SPEECH_KEY, AZURE_SPEECH_REGION } from "@env";
+
+// Initialize Azure Speech once at app startup so all screens can use it.
+if (!AZURE_SPEECH_KEY || !AZURE_SPEECH_REGION) {
+  console.error('Azure Speech env vars missing — check AZURE_SPEECH_KEY and AZURE_SPEECH_REGION in .env');
+} else {
+  initializeAzureSpeech(AZURE_SPEECH_KEY, AZURE_SPEECH_REGION);
+}
 
 const Stack = createNativeStackNavigator();
 
@@ -47,20 +55,11 @@ const AppNavigation = () => {
 
   // Initialize game content on app startup
   useEffect(() => {
-    const initializeContent = async () => {
-      try {
-        const contentLoaded = populateGameContent();
-        if (contentLoaded) {
-          console.log('✅ Game content loaded successfully!');
-        } else {
-          console.log('❌ Failed to load game content');
-        }
-      } catch (error) {
-        console.error('Error initializing content:', error);
-      }
-    };
-    
-    initializeContent();
+    try {
+      populateGameContent();
+    } catch (error) {
+      console.error('Error initializing content:', error);
+    }
   }, []);
 
   useEffect(() => {
@@ -69,45 +68,20 @@ const AppNavigation = () => {
 
       if (currentUser) {
         try {
-          console.log("🔍 [App.tsx] Authenticated user:", currentUser.uid, currentUser.email);
-          
-          // Check both collections properly
           const teacherDoc = await getDoc(doc(db, "teacherAccounts", currentUser.uid));
           const studentDoc = await getDoc(doc(db, "studentAccounts", currentUser.uid));
 
-          console.log("📋 [App.tsx] Teacher doc exists:", teacherDoc.exists());
-          console.log("📋 [App.tsx] Student doc exists:", studentDoc.exists());
-
           if (teacherDoc.exists()) {
             setRole("teacher");
-            setHasPlayerName(true); // Teachers don't need player name check
+            setHasPlayerName(true);
           } else if (studentDoc.exists()) {
             setRole("student");
-            
-            // Check if student has a player name
-            console.log("🔍 [App.tsx] Checking player name for user:", currentUser.uid);
             const playerDoc = await getDoc(doc(db, "Playername", currentUser.uid));
-            console.log("📋 [App.tsx] Player document exists:", playerDoc.exists());
-            if (playerDoc.exists() && playerDoc.data()?.playerName) {
-              console.log("✅ [App.tsx] Found player name:", playerDoc.data()?.playerName);
-              setHasPlayerName(true);
-            } else {
-              console.log("❌ [App.tsx] No player name found");
-              setHasPlayerName(false);
-            }
+            setHasPlayerName(playerDoc.exists() && !!playerDoc.data()?.playerName);
           } else {
-            // User is authenticated but has no role document - assume student and check for player name
-            console.log("⚠️ [App.tsx] No role document found, checking for player name directly");
             const playerDoc = await getDoc(doc(db, "Playername", currentUser.uid));
-            if (playerDoc.exists() && playerDoc.data()?.playerName) {
-              console.log("✅ [App.tsx] Found player name, assuming student role");
-              setRole("student");
-              setHasPlayerName(true);
-            } else {
-              console.log("❌ [App.tsx] No player name, assuming new student");
-              setRole("student");
-              setHasPlayerName(false);
-            }
+            setRole("student");
+            setHasPlayerName(playerDoc.exists() && !!playerDoc.data()?.playerName);
           }
         } catch (error) {
           console.error("Error fetching user role:", error);
@@ -125,11 +99,11 @@ const AppNavigation = () => {
     return unsubscribe;
   }, []);
 
-  // Show splash screen while loading fonts or checking onboarding
-  if (!fontsLoaded || isLoading || showSplash) {
+  // Show splash screen while loading fonts, checking onboarding, or checking auth state
+  if (!fontsLoaded || isLoading || showSplash || loading) {
     return (
-      <CustomSplashScreen 
-        onFinish={() => setShowSplash(false)} 
+      <CustomSplashScreen
+        onFinish={() => setShowSplash(false)}
       />
     );
   }
@@ -149,11 +123,6 @@ const AppNavigation = () => {
         navigation={mockNavigation}
       />
     );
-  }
-
-  // Show loading while checking auth state
-  if (loading) {
-    return null;
   }
 
   return (
@@ -192,7 +161,7 @@ const AppNavigation = () => {
                 <Stack.Screen name="Confirm" component={Confirm} />
                 <Stack.Screen name="PersonalProgress" component={PersonalProgress} />
                 <Stack.Screen name="PersonalPracticeRoom" component={PersonalPracticeRoom} />
-                <Stack.Screen name="PracticeGame" component={PracticeGame} />
+                <Stack.Screen name="Leaderboard" component={Leaderboard} />
               </>
             ) : (
               // Student without player name - must create one first
@@ -204,7 +173,7 @@ const AppNavigation = () => {
                 <Stack.Screen name="Confirm" component={Confirm} />
                 <Stack.Screen name="PersonalProgress" component={PersonalProgress} />
                 <Stack.Screen name="PersonalPracticeRoom" component={PersonalPracticeRoom} />
-                <Stack.Screen name="PracticeGame" component={PracticeGame} />
+                <Stack.Screen name="Leaderboard" component={Leaderboard} />
               </>
             )}
             <Stack.Screen name="Room" component={ManageRooms} />

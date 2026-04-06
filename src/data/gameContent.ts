@@ -1092,79 +1092,24 @@ export const getContentForLevel = (readerLevel: 1 | 2 | 3 | 4, macroLevel: 1 | 2
   return levelData?.macroLevels[`macroLevel${macroLevel}` as keyof typeof levelData.macroLevels];
 };
 
-// Randomization utility - gets a random unused index
-const getRandomUnusedIndex = (
-  arrayLength: number, 
-  usedIndices: number[] = []
-): number => {
-  // If all indices have been used, reset
-  if (usedIndices.length >= arrayLength) {
-    usedIndices = [];
-  }
-  
-  // Get available indices
-  const availableIndices = Array.from({ length: arrayLength }, (_, i) => i)
-    .filter(i => !usedIndices.includes(i));
-  
-  // Return random available index
-  const randomIndex = Math.floor(Math.random() * availableIndices.length);
-  return availableIndices[randomIndex];
-};
-
-// Get tracking key for used indices
-const getTrackingKey = (
-  readerLevel: number, 
-  macroLevel: number, 
-  type: 'words' | 'sentences' | 'paragraphs'
-): string => {
-  return `r${readerLevel}_m${macroLevel}_${type}`;
-};
-
-export const getSubLevelContent = (
-  readerLevel: 1 | 2 | 3 | 4, 
-  macroLevel: 1 | 2 | 3 | 4, 
-  subLevel: number,
-  usedIndices: { [key: string]: number[] } = {}
-): { content: ContentItem | null; selectedIndex: number; trackingKey: string } => {
+// Get sequential content for a specific micro-level (1-30)
+// Micro-levels 1-10: words, 11-20: sentences, 21-30: paragraphs
+export const getSequentialContent = (
+  readerLevel: 1 | 2 | 3 | 4,
+  macroLevel: 1 | 2 | 3 | 4,
+  microLevel: number
+): ContentItem | null => {
   const content = getContentForLevel(readerLevel, macroLevel);
-  if (!content) return { content: null, selectedIndex: -1, trackingKey: '' };
+  if (!content) return null;
 
-  let contentArray: ContentItem[];
-  let type: 'words' | 'sentences' | 'paragraphs';
-  
-  // Sub-levels 1-10: Words, 11-20: Sentences, 21-30: Paragraphs
-  if (subLevel <= 10) {
-    contentArray = content.words;
-    type = 'words';
-  } else if (subLevel <= 20) {
-    contentArray = content.sentences;
-    type = 'sentences';
-  } else {
-    contentArray = content.paragraphs;
-    type = 'paragraphs';
-  }
-
-  const trackingKey = getTrackingKey(readerLevel, macroLevel, type);
-  const usedIndicesForType = usedIndices[trackingKey] || [];
-  
-  // Get random unused index
-  const selectedIndex = getRandomUnusedIndex(contentArray.length, usedIndicesForType);
-  const selectedContent = contentArray[selectedIndex];
-
-  return { 
-    content: selectedContent || null, 
-    selectedIndex, 
-    trackingKey 
-  };
+  if (microLevel <= 10) return content.words[microLevel - 1] || null;
+  if (microLevel <= 20) return content.sentences[microLevel - 11] || null;
+  return content.paragraphs[microLevel - 21] || null;
 };
 
-// Progression Logic
-export const calculateProgression = (score: number, currentSubLevel: number) => {
-  if (score >= 75) {
-    return { action: 'advance', newSubLevel: Math.min(currentSubLevel + 1, 30) };
-  } else if (score >= 50) {
-    return { action: 'stay', newSubLevel: currentSubLevel };
-  } else {
-    return { action: 'demote', newSubLevel: Math.max(currentSubLevel - 1, 1) };
-  }
+// Get content type label for a given micro-level number
+export const getContentTypeForMicroLevel = (microLevel: number): 'words' | 'sentences' | 'paragraphs' => {
+  if (microLevel <= 10) return 'words';
+  if (microLevel <= 20) return 'sentences';
+  return 'paragraphs';
 };

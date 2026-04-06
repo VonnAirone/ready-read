@@ -2,6 +2,12 @@ import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 
+// Prevent the splash screen from auto-hiding before fonts are loaded.
+// Must be called at module scope (before the component tree renders).
+SplashScreen.preventAutoHideAsync().catch(() => {
+  // Already hidden or not supported — safe to ignore
+});
+
 export default function useCustomFonts() {
   const [fontsLoaded, fontError] = useFonts({
     'Figtree-Regular': require('../assets/fonts/Figtree-Regular.ttf'),
@@ -11,27 +17,8 @@ export default function useCustomFonts() {
   });
 
   useEffect(() => {
-    if (fontError) {
-      console.error('Error loading fonts:', fontError);
-    }
-  }, [fontError]);
-
-  useEffect(() => {
-    async function prepare() {
-      try {
-        // Keep splash screen visible while fonts are loading
-        await SplashScreen.preventAutoHideAsync();
-      } catch (e) {
-        console.warn('SplashScreen error:', e);
-      }
-    }
-    prepare();
-  }, []);
-
-  useEffect(() => {
     if (fontsLoaded || fontError) {
-      // Hide splash screen when fonts are ready or if there's an error
-      SplashScreen.hideAsync().catch(console.warn);
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, fontError]);
 

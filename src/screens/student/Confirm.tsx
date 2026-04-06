@@ -56,6 +56,10 @@ const Confirm = ({ navigation }: any) => {
                 <Text style={styles.playText}>Play</Text>
               </LinearGradient>
             </TouchableOpacity>
+
+            <TouchableOpacity style={styles.cancelButton} onPress={() => navigation.goBack()}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           </LinearGradient>
         </View>
       </Modal>
@@ -113,5 +117,15 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 18,
     fontWeight: "bold",
+  },
+  cancelButton: {
+    marginTop: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 30,
+  },
+  cancelText: {
+    color: "#ffffffcc",
+    fontSize: 16,
+    textDecorationLine: "underline",
   },
 });

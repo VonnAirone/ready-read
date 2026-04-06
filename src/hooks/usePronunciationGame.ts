@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { ASSESSMENT_ITEMS, determineReaderLevel, calculateTotalScore, READER_LEVEL_INFO } from '../data/assessmentData';
 import { audioRecordingService } from '../services/audioRecording';
 import { speechRecognitionService } from '../services/speechRecognition';
@@ -27,6 +27,7 @@ export function usePronunciationGame({ onComplete }: UsePronunciationGameProps =
   const [isProcessing, setIsProcessing] = useState(false);
 
   const recordingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const stopRecordingRef = useRef<() => Promise<void>>();
 
   const currentItem = ASSESSMENT_ITEMS[currentItemIndex];
   const isLastItem = currentItemIndex >= ASSESSMENT_ITEMS.length - 1;
@@ -48,18 +49,19 @@ export function usePronunciationGame({ onComplete }: UsePronunciationGameProps =
         return;
       }
 
-      // Auto-stop recording after 10 seconds
+      // Auto-stop recording after 10 seconds (use ref to avoid stale closure)
       recordingTimeoutRef.current = setTimeout(() => {
-        stopRecording();
+        stopRecordingRef.current?.();
       }, 10000);
 
     } catch (error) {
-      console.error('Failed to start recording:', error);
       Alert.alert('Error', 'Recording failed. Please try again.');
       setIsRecording(false);
     }
   }, []);
 
+  // Keep the ref pointing to the latest stopRecording so the auto-stop timeout
+  // always calls the version with fresh currentItem / isLastItem values.
   const stopRecording = useCallback(async () => {
     try {
       if (recordingTimeoutRef.current) {
@@ -137,12 +139,17 @@ export function usePronunciationGame({ onComplete }: UsePronunciationGameProps =
       }
 
     } catch (error) {
-      console.error('Failed to process recording:', error);
       Alert.alert('Error', 'Failed to process your recording. Please try again.');
       setIsProcessing(false);
       setAssessmentPhase('progress');
     }
   }, [currentItem, isLastItem]);
+
+  // Keep the ref in sync with the latest stopRecording (inside useEffect to
+  // avoid mutating a ref during render in React concurrent mode).
+  useEffect(() => {
+    stopRecordingRef.current = stopRecording;
+  }, [stopRecording]);
 
   const calculateFinalLevel = useCallback((lastResult: AssessmentResult) => {
     const allResults = [...assessmentResults, lastResult];
@@ -188,11 +195,21 @@ export function usePronunciationGame({ onComplete }: UsePronunciationGameProps =
     setAssessmentResults([]);
     setIsRecording(false);
     setIsProcessing(false);
-    
+
     if (recordingTimeoutRef.current) {
       clearTimeout(recordingTimeoutRef.current);
       recordingTimeoutRef.current = null;
     }
+  }, []);
+
+  // Cancel any active recording when the component using this hook unmounts
+  useEffect(() => {
+    return () => {
+      if (recordingTimeoutRef.current) {
+        clearTimeout(recordingTimeoutRef.current);
+      }
+      audioRecordingService.cancelRecording();
+    };
   }, []);
 
   return {

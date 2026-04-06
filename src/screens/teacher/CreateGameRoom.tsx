@@ -6,11 +6,8 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  SafeAreaView,
-  StatusBar,
   ScrollView,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { auth, db } from "../../services/firebase";
 import {
@@ -19,8 +16,12 @@ import {
   serverTimestamp,
   doc,
   getDoc,
+  getDocs,
+  query,
+  where,
 } from "firebase/firestore";
-import { COLORS, GRADIENTS } from "../../constants/theme";
+import { COLORS } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
 
 export default function CreateGameRoom({ navigation }: any) {
@@ -44,7 +45,6 @@ export default function CreateGameRoom({ navigation }: any) {
           setCreatorName(user.email || "Unknown Teacher");
         }
       } catch (err) {
-        console.error("Error fetching teacher name:", err);
         setCreatorName(user.email || "Unknown Teacher");
       }
     };
@@ -52,10 +52,21 @@ export default function CreateGameRoom({ navigation }: any) {
     fetchTeacherName();
   }, []);
 
-  // Generate unique room code + quizId
-  const generateCode = () => {
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const generatedQuizId = Math.random().toString(36).substring(2, 10); // 👈 random quizId
+  // Generate a unique room code (checks Firestore for collisions)
+  const generateCode = async () => {
+    const generateRandom = () => Math.random().toString(36).substring(2, 8).toUpperCase();
+    let code = generateRandom();
+
+    // Retry until we find a code that doesn't already exist
+    for (let attempts = 0; attempts < 5; attempts++) {
+      const existing = await getDocs(
+        query(collection(db, "GenerateRoom"), where("roomCode", "==", code))
+      );
+      if (existing.empty) break;
+      code = generateRandom();
+    }
+
+    const generatedQuizId = Math.random().toString(36).substring(2, 10);
     setRoomCode(code);
     setQuizId(generatedQuizId);
   };
@@ -116,15 +127,12 @@ export default function CreateGameRoom({ navigation }: any) {
       setRoomCode("");
       setQuizId("");
     } catch (err: any) {
-      console.error("Error saving room:", err);
       Alert.alert("Error", "Could not save room. Try again.");
     }
   };
 
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity 
@@ -217,18 +225,11 @@ export default function CreateGameRoom({ navigation }: any) {
             </View>
           </View>
         </ScrollView>
-      </SafeAreaView>
-    </LinearGradient>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
