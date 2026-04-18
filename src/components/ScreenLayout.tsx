@@ -1,7 +1,5 @@
 import React from "react";
 import { SafeAreaView, StatusBar, StyleSheet, View, ViewStyle } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { COLORS, GRADIENTS } from "../constants/theme";
 
 interface ScreenLayoutProps {
   children: React.ReactNode;
@@ -11,20 +9,21 @@ interface ScreenLayoutProps {
 
 export function ScreenLayout({ children, style, noPadding }: ScreenLayoutProps) {
   return (
-    <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <SafeAreaView style={styles.safeArea}>
         <View style={[styles.content, !noPadding && styles.padding, style]}>
           {children}
         </View>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#FFFFFF',
   },
   safeArea: {
     flex: 1,

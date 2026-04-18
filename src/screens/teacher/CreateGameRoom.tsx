@@ -9,17 +9,7 @@ import {
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { auth, db } from "../../services/firebase";
-import {
-  collection,
-  addDoc,
-  serverTimestamp,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
+import { supabase, auth } from "../../services/supabase";
 import { COLORS } from "../../constants/theme";
 import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
@@ -37,13 +27,12 @@ export default function CreateGameRoom({ navigation }: any) {
       if (!user) return;
 
       try {
-        const teacherDoc = await getDoc(doc(db, "teacherAccounts", user.uid));
-        if (teacherDoc.exists()) {
-          const data = teacherDoc.data();
-          setCreatorName(data.name || user.email || "Unknown Teacher");
-        } else {
-          setCreatorName(user.email || "Unknown Teacher");
-        }
+        const { data: teacherRow } = await supabase
+          .from('teacher_accounts')
+          .select('name')
+          .eq('id', user.id)
+          .single();
+        setCreatorName(teacherRow?.name || user.email || "Unknown Teacher");
       } catch (err) {
         setCreatorName(user.email || "Unknown Teacher");
       }
@@ -52,17 +41,17 @@ export default function CreateGameRoom({ navigation }: any) {
     fetchTeacherName();
   }, []);
 
-  // Generate a unique room code (checks Firestore for collisions)
+  // Generate a unique room code (checks Supabase for collisions)
   const generateCode = async () => {
     const generateRandom = () => Math.random().toString(36).substring(2, 8).toUpperCase();
     let code = generateRandom();
 
-    // Retry until we find a code that doesn't already exist
     for (let attempts = 0; attempts < 5; attempts++) {
-      const existing = await getDocs(
-        query(collection(db, "GenerateRoom"), where("roomCode", "==", code))
-      );
-      if (existing.empty) break;
+      const { data: existing } = await supabase
+        .from('game_rooms')
+        .select('id')
+        .eq('room_code', code);
+      if (!existing || existing.length === 0) break;
       code = generateRandom();
     }
 
@@ -86,22 +75,31 @@ export default function CreateGameRoom({ navigation }: any) {
       }
 
       // Check if this user is a teacher
-      const teacherDoc = await getDoc(doc(db, "teacherAccounts", user.uid));
-      if (!teacherDoc.exists()) {
+      const { data: teacherRow } = await supabase
+        .from('teacher_accounts')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+      if (!teacherRow) {
         Alert.alert("Access Denied", "Only teachers can create rooms.");
         return;
       }
 
-      // Save room to Firestore
-      const docRef = await addDoc(collection(db, "GenerateRoom"), {
-        roomName,
-        creatorName,
-        roomCode,
-        quizId, // 👈 auto-generated
-        createdAt: serverTimestamp(),
-        createdBy: user.uid,
-        creatorEmail: user.email,
-      });
+      // Save room to Supabase
+      const { data: newRoom, error: insertError } = await supabase
+        .from('game_rooms')
+        .insert({
+          room_name: roomName,
+          creator_name: creatorName,
+          room_code: roomCode,
+          quiz_id: quizId,
+          created_by: user.id,
+          creator_email: user.email,
+        })
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
 
       Alert.alert(
         "Success",
@@ -110,9 +108,8 @@ export default function CreateGameRoom({ navigation }: any) {
           {
             text: "OK",
             onPress: () => {
-              // Navigate to Room management after creation
               navigation.navigate("Room", {
-                roomId: docRef.id,
+                roomId: newRoom?.id,
                 roomName,
                 creatorName,
                 roomCode,
@@ -139,7 +136,7 @@ export default function CreateGameRoom({ navigation }: any) {
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color="white" />
+            <Ionicons name="arrow-back" size={24} color="#374151" />
           </TouchableOpacity>
           <Text style={styles.title}>Create Room</Text>
           <View style={styles.headerRight} />
@@ -152,7 +149,7 @@ export default function CreateGameRoom({ navigation }: any) {
               {/* Form Header */}
               <View style={styles.formHeader}>
                 <View style={styles.iconContainer}>
-                  <Ionicons name="home" size={32} color="white" />
+                  <Ionicons name="home" size={32} color={COLORS.primary} />
                 </View>
                 <Text style={styles.formTitle}>New Pronunciation Room</Text>
                 <Text style={styles.formSubtitle}>Create a space for students to practice</Text>
@@ -162,7 +159,7 @@ export default function CreateGameRoom({ navigation }: any) {
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Room Name</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="text-outline" size={20} color="rgba(255,255,255,0.7)" />
+                  <Ionicons name="text-outline" size={20} color="#9CA3AF" />
                   <TextInput
                     style={styles.input}
                     placeholder="Enter room name"
@@ -177,7 +174,7 @@ export default function CreateGameRoom({ navigation }: any) {
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Created By</Text>
                 <View style={[styles.inputWrapper, styles.disabledInput]}>
-                  <Ionicons name="person-outline" size={20} color="rgba(255,255,255,0.7)" />
+                  <Ionicons name="person-outline" size={20} color="#9CA3AF" />
                   <TextInput
                     style={[styles.input, styles.disabledInputText]}
                     value={creatorName}
@@ -191,7 +188,7 @@ export default function CreateGameRoom({ navigation }: any) {
                 <Text style={styles.inputLabel}>Room Code</Text>
                 <View style={styles.codeContainer}>
                   <View style={styles.codeDisplay}>
-                    <Ionicons name="key-outline" size={20} color="white" />
+                    <Ionicons name="key-outline" size={20} color="#374151" />
                     <Text style={styles.codeText}>{roomCode || "------"}</Text>
                   </View>
                   <TouchableOpacity 
@@ -218,7 +215,7 @@ export default function CreateGameRoom({ navigation }: any) {
                   style={styles.viewRoomsButton}
                   onPress={() => navigation.navigate("Room")}
                 >
-                  <Ionicons name="list-outline" size={20} color="white" />
+                  <Ionicons name="list-outline" size={20} color="#374151" />
                   <Text style={styles.viewRoomsButtonText}>View All Rooms</Text>
                 </TouchableOpacity>
               </View>
@@ -242,14 +239,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontSize: 20,
     fontFamily: getFontFamily('semibold'),
-    color: 'white',
+    color: '#111827',
     flex: 1,
     textAlign: 'center',
     marginHorizontal: 16,
@@ -276,7 +273,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -284,14 +281,14 @@ const styles = StyleSheet.create({
   formTitle: {
     fontSize: 24,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#111827',
     textAlign: 'center',
     marginBottom: 8,
   },
   formSubtitle: {
     fontSize: 16,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.7)',
+    color: '#6B7280',
     textAlign: 'center',
     lineHeight: 22,
   },
@@ -301,32 +298,32 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: 'white',
+    color: '#111827',
     marginBottom: 8,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#F9FAFB',
     borderRadius: 16,
     paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: '#E5E7EB',
   },
   disabledInput: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: '#F3F4F6',
     opacity: 0.7,
   },
   input: {
     flex: 1,
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: 'white',
+    color: '#111827',
     paddingVertical: 16,
     paddingLeft: 12,
   },
   disabledInputText: {
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6B7280',
   },
   codeSection: {
     marginBottom: 32,
@@ -340,7 +337,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#F9FAFB',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -348,14 +345,15 @@ const styles = StyleSheet.create({
   codeText: {
     fontSize: 20,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#111827',
     marginLeft: 12,
     letterSpacing: 2,
   },
   generateButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 12,
@@ -393,17 +391,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F9FAFB',
     borderRadius: 16,
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: '#E5E7EB',
     gap: 8,
   },
   viewRoomsButtonText: {
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: 'white',
+    color: '#374151',
   },
 });

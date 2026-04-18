@@ -40,8 +40,8 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
   const [firstAttemptScores, setFirstAttemptScores] = useState<Record<number, number>>({});
   const [macroComplete, setMacroComplete] = useState(false);
 
-  const loadCurrentContent = useCallback(() => {
-    const content = getSequentialContent(
+  const loadCurrentContent = useCallback(async () => {
+    const content = await getSequentialContent(
       currentReaderLevel,
       currentMacroLevel,
       currentMicroLevel
@@ -54,9 +54,9 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
     return content;
   }, [currentReaderLevel, currentMacroLevel, currentMicroLevel]);
 
-  const startPractice = useCallback(() => {
+  const startPractice = useCallback(async () => {
     setIsLoading(true);
-    const content = loadCurrentContent();
+    const content = await loadCurrentContent();
     if (content) {
       setProgressMessage(`Starting ${getContentTypeForMicroLevel(currentMicroLevel)} practice`);
     } else {
@@ -75,7 +75,7 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
     setProgressMessage('Processing your pronunciation...');
 
     try {
-      const transcriptionResult = await speechRecognitionService.transcribeAudio(audioUri, currentContent.content);
+      const transcriptionResult = await speechRecognitionService.transcribeAudio(audioUri, currentContent.text);
       const transcription = transcriptionResult.text;
 
       if (!transcription || transcription.trim() === '') {
@@ -92,11 +92,11 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
             vowelClarity: Math.round(transcriptionResult.azureScores.completenessScore),
             totalScore: Math.round(transcriptionResult.azureScores.pronScore),
           }
-        : calculatePronunciationScore(currentContent.content, transcription);
+        : calculatePronunciationScore(currentContent.text, transcription);
       setScore(scoreResult);
 
       // Get word-level comparison
-      const results = speechRecognitionService.getWordLevelResults(currentContent.content, transcription);
+      const results = speechRecognitionService.getWordLevelResults(currentContent.text, transcription);
       setWordResults(results);
 
       const allCorrect = results.every(r => r.isCorrect);
@@ -124,7 +124,7 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
   }, [currentContent, isFirstAttempt, firstAttemptScores, currentMicroLevel]);
 
   // Advance to next micro-level (called by UI when allWordsCorrect)
-  const advanceToNext = useCallback(() => {
+  const advanceToNext = useCallback(async () => {
     if (currentMicroLevel >= 30) {
       setMacroComplete(true);
       setProgressMessage('Macro Level Complete!');
@@ -139,7 +139,7 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
     setProgressMessage('');
 
     // Load content for next micro-level
-    const content = getSequentialContent(currentReaderLevel, currentMacroLevel, nextLevel);
+    const content = await getSequentialContent(currentReaderLevel, currentMacroLevel, nextLevel);
     setCurrentContent(content);
   }, [currentMicroLevel, currentReaderLevel, currentMacroLevel]);
 

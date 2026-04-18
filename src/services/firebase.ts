@@ -1,6 +1,6 @@
 // firebaseConfig.ts
 import { initializeApp } from "firebase/app";
-import { initializeAuth, getReactNativePersistence, getAuth, Auth } from 'firebase/auth';
+import { initializeAuth, getReactNativePersistence, Auth } from 'firebase/auth';
 import { getFirestore } from "firebase/firestore";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -23,25 +23,18 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Auth with AsyncStorage persistence for React Native
+// Use initializeAuth with AsyncStorage persistence — required for React Native.
+// getAuth() defaults to inMemoryPersistence in the RN Firebase build, which
+// loses the session on every app restart and can cause auth failures in
+// standalone/preview builds where the browser persistence APIs are unavailable.
 let auth: Auth;
 try {
-  // getReactNativePersistence is available via Metro's react-native field resolution
   auth = initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage as any)
+    persistence: getReactNativePersistence(AsyncStorage),
   });
 } catch (error: any) {
-  // If already initialized (e.g. hot reload), get the existing instance
-  if (error.code === 'auth/already-initialized') {
-    auth = getAuth(app);
-  } else {
-    // Fallback: try without persistence
-    try {
-      auth = getAuth(app);
-    } catch {
-      auth = initializeAuth(app);
-    }
-  }
+  console.error('Firebase Auth initialization error:', error);
+  throw new Error(`Firebase Auth initialization failed: ${error.message}`);
 }
 
 const db = getFirestore(app);

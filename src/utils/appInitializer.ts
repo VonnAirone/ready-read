@@ -1,7 +1,7 @@
 // App Entry Point - Add content population
 // Add this to your App.tsx or main entry component
 
-import populateGameContent from './src/data/demoContent';
+import populateGameContent from '../data/demoContent';
 
 // Call this when your app starts to load demo content
 export function initializeApp() {

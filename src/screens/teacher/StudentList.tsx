@@ -10,15 +10,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { auth, db } from '../../services/firebase';
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  doc, 
-  getDoc 
-} from 'firebase/firestore';
+import { supabase, auth } from '../../services/supabase';
 import { COLORS } from '../../constants/theme';
 import { ScreenLayout } from '../../components/ScreenLayout';
 import { getFontFamily } from '../../../styles/fonts';
@@ -56,66 +48,38 @@ export default function StudentList({ navigation }: StudentListProps) {
       const user = auth.currentUser;
       if (!user) return;
 
-      const studentsList: StudentData[] = [];
+      const { data: rooms } = await supabase
+        .from('game_rooms')
+        .select('room_code, room_name')
+        .eq('created_by', user.id);
 
-      // Get all rooms created by this teacher
-      const roomsQuery = query(
-        collection(db, 'GenerateRoom'),
-        where('createdBy', '==', user.uid)
-      );
-      const roomsSnapshot = await getDocs(roomsQuery);
-      const teacherRooms = new Map();
-      
-      roomsSnapshot.forEach((doc) => {
-        const data = doc.data();
-        teacherRooms.set(data.roomCode, {
-          roomName: data.roomName,
-          roomCode: data.roomCode,
-        });
+      const teacherRooms = new Map<string, { roomName: string; roomCode: string }>();
+      (rooms ?? []).forEach(r => teacherRooms.set(r.room_code, { roomName: r.room_name, roomCode: r.room_code }));
+
+      const { data: progressRows } = await supabase
+        .from('student_progress')
+        .select('*')
+        .eq('teacher_id', user.id);
+
+      const studentsList: StudentData[] = (progressRows ?? []).map(row => {
+        const roomInfo = teacherRooms.get(row.room_code) || { roomName: 'Unknown Room', roomCode: row.room_code || 'N/A' };
+        return {
+          id: row.id,
+          name: row.player_name || row.name || 'Unknown Player',
+          email: row.email || 'No email',
+          roomName: roomInfo.roomName,
+          roomCode: roomInfo.roomCode,
+          readerLevel: row.reader_level || 0,
+          macroLevel: row.macro_level || 0,
+          assessmentCompleted: row.assessment_completed || false,
+          lastActivity: row.updated_at ? new Date(row.updated_at) : new Date(),
+          macroLevelProgress: row.macro_level_progress || {},
+          scores: row.scores || [],
+        };
       });
 
-      // Get student progress data for this teacher
-      const progressQuery = query(
-        collection(db, 'StudentProgress'),
-        where('teacherId', '==', user.uid)
-      );
-      const progressSnapshot = await getDocs(progressQuery);
-
-      // Process each student's progress
-      for (const progressDoc of progressSnapshot.docs) {
-        const progressData = progressDoc.data();
-        
-        try {
-          // Get player name from StudentProgress document
-          const playerName = progressData.playerName || progressData.name || 'Unknown Player';
-
-          // Get room information
-          const roomInfo = teacherRooms.get(progressData.roomCode) || {
-            roomName: 'Unknown Room',
-            roomCode: progressData.roomCode || 'N/A',
-          };
-
-          studentsList.push({
-            id: progressDoc.id,
-            name: playerName,
-            email: progressData.email || 'No email',
-            roomName: roomInfo.roomName,
-            roomCode: roomInfo.roomCode,
-            readerLevel: progressData.readerLevel || 0,
-            macroLevel: progressData.macroLevel || 0,
-            assessmentCompleted: progressData.assessmentCompleted || false,
-            lastActivity: progressData.updatedAt?.toDate() || new Date(),
-            macroLevelProgress: progressData.macroLevelProgress || {},
-            scores: progressData.scores || [],
-          });
-        } catch (error) {
-        }
-      }
-
-      // Sort by last activity
       studentsList.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
       setStudents(studentsList);
-
     } catch (error) {
     } finally {
       setLoading(false);
@@ -141,14 +105,14 @@ export default function StudentList({ navigation }: StudentListProps) {
   const StudentCard = ({ student }: { student: StudentData }) => (
     <View style={styles.studentCard}>
       <LinearGradient
-        colors={['rgba(255,255,255,0.15)', 'rgba(255,255,255,0.05)']}
+        colors={['#F9FAFB', '#F3F4F6']}
         style={styles.studentCardGradient}
       >
         {/* Header */}
         <View style={styles.studentHeader}>
           <View style={styles.studentInfo}>
             <View style={styles.studentAvatar}>
-              <Ionicons name="person" size={24} color="white" />
+              <Ionicons name="person" size={24} color="#374151" />
             </View>
             <View style={styles.studentDetails}>
               <Text style={styles.studentName}>{student.name}</Text>
@@ -164,7 +128,7 @@ export default function StudentList({ navigation }: StudentListProps) {
         {/* Room Info */}
         <View style={styles.roomContainer}>
           <View style={styles.roomInfo}>
-            <Ionicons name="home-outline" size={16} color="rgba(255,255,255,0.7)" />
+            <Ionicons name="home-outline" size={16} color="#6B7280" />
             <Text style={styles.roomText}>{student.roomName}</Text>
           </View>
           <View style={styles.roomCodeBadge}>
@@ -199,7 +163,7 @@ export default function StudentList({ navigation }: StudentListProps) {
     return (
       <ScreenLayout>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="white" />
+          <ActivityIndicator size="large" color={COLORS.primary} />
           <Text style={styles.loadingText}>Loading students...</Text>
         </View>
       </ScreenLayout>
@@ -214,7 +178,7 @@ export default function StudentList({ navigation }: StudentListProps) {
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color="white" />
+            <Ionicons name="arrow-back" size={24} color="#374151" />
           </TouchableOpacity>
           <Text style={styles.title}>Active Students</Text>
           <View style={styles.headerRight}>
@@ -446,21 +410,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
     paddingTop: 20,
+    paddingBottom: 16,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontSize: 20,
     fontFamily: getFontFamily('semibold'),
-    color: 'white',
+    color: '#111827',
     flex: 1,
     textAlign: 'center',
     marginHorizontal: 16,
@@ -472,8 +436,8 @@ const styles = StyleSheet.create({
   studentCount: {
     fontSize: 16,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    color: '#111827',
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -485,14 +449,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   tableContainer: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#F9FAFB',
     borderRadius: 16,
     overflow: 'hidden',
     marginBottom: 20,
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F3F4F6',
     paddingVertical: 16,
     paddingHorizontal: 16,
   },
@@ -500,7 +464,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     fontFamily: getFontFamily('semibold'),
-    color: 'white',
+    color: '#111827',
     textAlign: 'center',
   },
   tableBody: {
@@ -510,7 +474,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingVertical: 16,
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
   },
   nameCell: {
@@ -546,26 +510,26 @@ const styles = StyleSheet.create({
   studentNameTable: {
     fontSize: 14,
     fontFamily: getFontFamily('medium'),
-    color: 'white',
+    color: '#111827',
     textAlign: 'center',
   },
   studentEmailTable: {
     fontSize: 12,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.7)',
+    color: '#6B7280',
     textAlign: 'center',
     marginTop: 2,
   },
   roomNameTable: {
     fontSize: 14,
     fontFamily: getFontFamily('medium'),
-    color: 'white',
+    color: '#111827',
     textAlign: 'center',
   },
   roomCodeTable: {
     fontSize: 12,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.7)',
+    color: '#6B7280',
     textAlign: 'center',
     marginTop: 2,
   },
@@ -580,24 +544,24 @@ const styles = StyleSheet.create({
   levelValueTable: {
     fontSize: 14,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#111827',
   },
   levelTextTable: {
     fontSize: 10,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6B7280',
     textAlign: 'center',
   },
   noDataRow: {
     paddingVertical: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: '#F9FAFB',
   },
   noDataText: {
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: 'rgba(255,255,255,0.7)',
+    color: '#6B7280',
     textAlign: 'center',
   },
   loadingContainer: {
@@ -608,7 +572,7 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: 'white',
+    color: '#374151',
     marginTop: 16,
   },
   studentsContainer: {
@@ -642,7 +606,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -653,13 +617,13 @@ const styles = StyleSheet.create({
   studentName: {
     fontSize: 18,
     fontFamily: getFontFamily('semibold'),
-    color: 'white',
+    color: '#111827',
     marginBottom: 2,
   },
   studentEmail: {
     fontSize: 14,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.7)',
+    color: '#6B7280',
   },
   activityContainer: {
     alignItems: 'flex-end',
@@ -667,7 +631,7 @@ const styles = StyleSheet.create({
   lastActivity: {
     fontSize: 12,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.6)',
+    color: '#9CA3AF',
     marginBottom: 4,
   },
   statusDot: {
@@ -682,7 +646,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#F3F4F6',
     borderRadius: 12,
   },
   roomInfo: {
@@ -693,11 +657,11 @@ const styles = StyleSheet.create({
   roomText: {
     fontSize: 14,
     fontFamily: getFontFamily('medium'),
-    color: 'white',
+    color: '#111827',
     marginLeft: 6,
   },
   roomCodeBadge: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#E5E7EB',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
@@ -705,7 +669,7 @@ const styles = StyleSheet.create({
   roomCodeText: {
     fontSize: 12,
     fontFamily: getFontFamily('medium'),
-    color: 'white',
+    color: '#374151',
   },
   levelsContainer: {
     flexDirection: 'row',
@@ -718,7 +682,7 @@ const styles = StyleSheet.create({
   levelLabel: {
     fontSize: 12,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.7)',
+    color: '#6B7280',
     marginBottom: 8,
   },
   levelBadge: {
@@ -737,13 +701,13 @@ const styles = StyleSheet.create({
   levelText: {
     fontSize: 12,
     fontFamily: getFontFamily('medium'),
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6B7280',
     textAlign: 'center',
   },
   levelDivider: {
     width: 1,
     height: 60,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#E5E7EB',
     marginHorizontal: 16,
   },
   emptyContainer: {
@@ -756,7 +720,7 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
@@ -764,14 +728,14 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 24,
     fontFamily: getFontFamily('semibold'),
-    color: 'white',
+    color: '#111827',
     marginBottom: 12,
     textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: 16,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.7)',
+    color: '#6B7280',
     textAlign: 'center',
     lineHeight: 24,
     paddingHorizontal: 40,
@@ -926,6 +890,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   modalCloseButtonText: {
     fontSize: 16,

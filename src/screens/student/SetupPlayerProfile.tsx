@@ -8,13 +8,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
-import { doc, setDoc, getDoc } from "firebase/firestore";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth, db } from "../../services/firebase";
+import { supabase, auth } from "../../services/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../../constants/theme";
 import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
+
+const MAX_PLAYER_NAME_LENGTH = 30;
 
 export default function SetupPlayerProfile({ navigation }: any) {
   const [playerName, setPlayerName] = useState("");
@@ -22,34 +22,33 @@ export default function SetupPlayerProfile({ navigation }: any) {
   const [email, setEmail] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [isExisting, setIsExisting] = useState(false);
-  const [loading, setLoading] = useState(true); // Add loading state
+  const [loading, setLoading] = useState(true);
+  const navTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const user = session?.user ?? null;
       if (user) {
-        setUserId(user.uid);
-        setEmail(user.email);
+        setUserId(user.id);
+        setEmail(user.email ?? null);
 
         try {
-          const playerRef = doc(db, "Playername", user.uid);
-          const playerSnap = await getDoc(playerRef);
+          const { data: playerRow } = await supabase
+            .from('player_names')
+            .select('player_name')
+            .eq('id', user.id)
+            .single();
 
-          if (playerSnap.exists()) {
-            const data = playerSnap.data();
-            const existingName = data?.playerName;
-            if (existingName) {
-              setPlayerName(existingName);
-              setIsExisting(true);
-              setTimeout(() => {
-                navigation.replace("GameMenu");
-              }, 1000);
-              return;
-            }
+          if (playerRow?.player_name) {
+            setPlayerName(playerRow.player_name);
+            setIsExisting(true);
+            navTimeoutRef.current = setTimeout(() => {
+              navigation.replace("StudentTabs");
+            }, 1000);
+            return;
           }
-        } catch (error) {
-        }
-        
-        // Only set loading to false if no existing player name
+        } catch (_) {}
+
         setLoading(false);
       } else {
         setUserId(null);
@@ -58,44 +57,47 @@ export default function SetupPlayerProfile({ navigation }: any) {
       }
     });
 
-    return unsubscribe;
+    return () => {
+      subscription.unsubscribe();
+      if (navTimeoutRef.current) clearTimeout(navTimeoutRef.current);
+    };
   }, [navigation]);
 
   const handleSave = async () => {
-    if (!playerName.trim()) {
+    const trimmed = playerName.trim();
+    if (!trimmed) {
       Alert.alert("Error", "Please enter a valid player name.");
+      return;
+    }
+    if (trimmed.length > MAX_PLAYER_NAME_LENGTH) {
+      Alert.alert("Error", `Player name must be ${MAX_PLAYER_NAME_LENGTH} characters or fewer.`);
       return;
     }
     if (!userId || !email) return;
 
     setSaving(true);
     try {
-      const playerRef = doc(db, "Playername", userId);
-      await setDoc(
-        playerRef,
-        {
-          playerName,
-          uid: userId,
-          email,
-          createdAt: new Date(),
-        },
-        { merge: true }
-      );
+      const { error: nameError } = await supabase.from('player_names').upsert({
+        id: userId,
+        player_name: trimmed,
+        email,
+      });
+      if (nameError) throw nameError;
 
-      const studentRef = doc(db, "studentAccounts", userId);
-      await setDoc(
-        studentRef,
-        {
-          uid: userId,
-          role: "student",
-          playerName,
+      try {
+        const { error: accountError } = await supabase.from('student_accounts').upsert({
+          id: userId,
+          role: 'student',
+          player_name: trimmed,
           email,
-          createdAt: new Date(),
-        },
-        { merge: true }
-      );
+        });
+        if (accountError) throw accountError;
+      } catch (_roleError: any) {
+        Alert.alert("Error", "Failed to create your account. Please try again.");
+        return;
+      }
 
-      navigation.replace("GameMenu");
+      navigation.replace("StudentTabs");
     } catch (error: any) {
       Alert.alert("Error", "Failed to save player name. Please try again.");
     } finally {
@@ -105,7 +107,7 @@ export default function SetupPlayerProfile({ navigation }: any) {
 
   const handleBackToLogin = async () => {
     try {
-      await signOut(auth);
+      await supabase.auth.signOut();
       navigation.replace("Login");
     } catch (error: any) {
       Alert.alert("Error", error.message);
@@ -121,7 +123,7 @@ export default function SetupPlayerProfile({ navigation }: any) {
         {loading ? (
           // Loading state while checking for existing player name
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={COLORS.white} />
+            <ActivityIndicator size="large" color={COLORS.primary} />
             <Text style={styles.loadingText}>Checking player profile...</Text>
           </View>
         ) : (
@@ -177,6 +179,7 @@ const styles = StyleSheet.create({
   topBar: {
     paddingTop: 20,
     paddingBottom: 20,
+    paddingHorizontal: 20,
   },
   content: {
     flex: 1,
@@ -189,7 +192,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   loadingText: {
-    color: COLORS.white,
+    color: '#374151',
     fontSize: 16,
     marginTop: 12,
     fontFamily: getFontFamily('regular'),
@@ -198,26 +201,26 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    backgroundColor: "#F3F4F6",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.3)",
+    borderColor: "#E5E7EB",
     alignSelf: "flex-start",
   },
   backButtonIcon: {
-    color: COLORS.white
-  },  
+    color: '#374151',
+  },
   backButtonText: {
     fontSize: 16,
-    color: COLORS.white,
+    color: '#374151',
     fontFamily: getFontFamily('medium'),
   },
   modalPanel: {
     width: "100%",
     backgroundColor: COLORS.white,
-    borderRadius: 15,
+    borderRadius: 16,
     padding: 20,
     alignItems: "center",
     shadowColor: "#000",
@@ -247,9 +250,11 @@ const styles = StyleSheet.create({
   continueButton: {
     width: "100%",
     backgroundColor: COLORS.primary,
-    padding: 14,
+    paddingVertical: 14,
     borderRadius: 10,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48,
   },
   continueText: { 
     color: "#fff", 

@@ -12,10 +12,17 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../../constants/theme";
 import { ScreenLayout } from "../../components/ScreenLayout";
-import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from "../../services/firebase";
+import { supabase } from "../../services/supabase";
 import { getFontFamily } from "../../../styles/fonts";
+
+const getAuthErrorMessage = (message: string): string => {
+  const msg = message.toLowerCase();
+  if (msg.includes('already registered') || msg.includes('already in use')) return 'An account with this email already exists.';
+  if (msg.includes('password') && msg.includes('6')) return 'Password must be at least 6 characters.';
+  if (msg.includes('invalid email')) return 'Please enter a valid email address.';
+  if (msg.includes('network') || msg.includes('fetch')) return 'Network error. Please check your connection and try again.';
+  return 'Something went wrong. Please try again.';
+};
 
 export default function Signup({ navigation }: any) {
   const [email, setEmail] = useState("");
@@ -39,44 +46,34 @@ const handleSignup = async () => {
 
   setLoading(true);
   try {
-    const userCred = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCred.user;
+    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+    if (error) throw error;
 
-    await setDoc(
-      doc(db, "studentAccounts", user.uid),
-      {
-        uid: user.uid,
-        role: "student",
+    const user = data.user;
+    if (user) {
+      const { error: insertError } = await supabase.from('student_accounts').insert({
+        id: user.id,
         name: name.trim(),
         email: email.trim(),
-        createdAt: new Date(),
-      },
-      { merge: false }
-    );
+        role: 'student',
+      });
+      if (insertError) throw insertError;
+    }
 
-    // ✅ Immediately log them out
-    await signOut(auth);
+    await supabase.auth.signOut();
 
     Alert.alert("Success", "Account created successfully!", [
-      {
-        text: "OK",
-        onPress: () => navigation.replace("Login"),
-      },
+      { text: "OK", onPress: () => navigation.replace("Login") },
     ]);
   } catch (err: any) {
-    if (err.code === "auth/email-already-in-use") {
-      Alert.alert(
-        "Account Exists",
-        "This email is already registered. Please log in instead.",
-        [
-          {
-            text: "OK",
-            onPress: () => navigation.replace("Login"),
-          },
-        ]
-      );
+    console.error('[Signup] error:', err);
+    const msg = err.message ?? '';
+    if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already in use')) {
+      Alert.alert("Account Exists", "This email is already registered. Please log in instead.", [
+        { text: "OK", onPress: () => navigation.replace("Login") },
+      ]);
     } else {
-      Alert.alert("Signup Error", err.message);
+      Alert.alert("Signup Error", getAuthErrorMessage(msg));
     }
   } finally {
     setLoading(false);
@@ -259,9 +256,10 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily('semibold'),
     fontSize: 16,
   },
-    signupBtn: {
+  signupBtn: {
     marginTop: 20,
     alignItems: "center",
+    justifyContent: "center",
   },
   signupText: {
     fontSize: 16,

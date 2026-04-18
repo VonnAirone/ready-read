@@ -2,7 +2,9 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Modal } from "react-native";
 import { useRoute } from "@react-navigation/native";
-import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import { COLORS } from "../../constants/theme";
+import { getFontFamily } from "../../../styles/fonts";
 
 const Confirm = ({ navigation }: any) => {
   const route = useRoute<any>();
@@ -10,8 +12,8 @@ const Confirm = ({ navigation }: any) => {
   const [modalVisible, setModalVisible] = useState(true);
 
   const handlePlay = () => {
-    setModalVisible(false);
-
+    // Navigate before closing the modal so the transparent background
+    // never flashes — the modal close is invisible during the transition.
     navigation.replace("PronunciationRoom", {
       roomData: {
         roomCode: roomcode,
@@ -27,40 +29,42 @@ const Confirm = ({ navigation }: any) => {
         createdBy: teacherId || createdBy || "",
       },
     });
+    setModalVisible(false);
   };
 
   return (
     <View style={styles.container}>
       <Modal visible={modalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <LinearGradient
-            colors={['#4c669f', '#3b5998', '#192f6a']}
-            style={styles.modalContent}
-          >
+          <View style={styles.modalContent}>
+            <View style={styles.iconContainer}>
+              <Ionicons name="enter-outline" size={36} color={COLORS.primary} />
+            </View>
+
             <Text style={styles.modalTitle}>Confirm Room</Text>
-            <Text style={styles.modalText}>
-              Are you sure you want to enter this room?
-              {"\n\n"}
-              <Text style={{ fontWeight: "bold", color: "#fff", fontSize: 18 }}>
-                <Text style={{ color: "#ffffffaa" }}>Room name: </Text>{roomname}{"\n"}
-                <Text style={{ color: "#ffffffaa" }}> Room Code: </Text>{roomcode}</Text>
-            </Text>
+            <Text style={styles.modalSubtitle}>Are you sure you want to enter this room?</Text>
+
+            <View style={styles.roomInfoCard}>
+              <View style={styles.roomInfoRow}>
+                <Text style={styles.roomInfoLabel}>Room Name</Text>
+                <Text style={styles.roomInfoValue}>{roomname}</Text>
+              </View>
+              <View style={styles.divider} />
+              <View style={styles.roomInfoRow}>
+                <Text style={styles.roomInfoLabel}>Room Code</Text>
+                <Text style={styles.roomInfoCode}>{roomcode}</Text>
+              </View>
+            </View>
 
             <TouchableOpacity style={styles.playButton} onPress={handlePlay}>
-              <LinearGradient
-                colors={['#00C853', '#B2FF59']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.playButtonGradient}
-              >
-                <Text style={styles.playText}>Play</Text>
-              </LinearGradient>
+              <Ionicons name="play-circle" size={20} color={COLORS.white} />
+              <Text style={styles.playText}>Enter Room</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.cancelButton} onPress={() => navigation.goBack()}>
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
-          </LinearGradient>
+          </View>
         </View>
       </Modal>
     </View>
@@ -70,62 +74,116 @@ const Confirm = ({ navigation }: any) => {
 export default Confirm;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: {
+    flex: 1,
+    backgroundColor: "transparent",
+  },
   modalOverlay: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    padding: 20,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    padding: 24,
   },
   modalContent: {
-    borderRadius: 25,
-    padding: 25,
-    width: "90%",
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 24,
+    width: "100%",
     alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
     elevation: 12,
   },
+  iconContainer: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: `${COLORS.primary}15`,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
   modalTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#fff",
-    marginBottom: 15,
+    fontSize: 22,
+    fontFamily: getFontFamily('bold'),
+    color: COLORS.primary,
+    marginBottom: 8,
     textAlign: "center",
   },
-  modalText: {
-    fontSize: 18,
+  modalSubtitle: {
+    fontSize: 14,
+    fontFamily: getFontFamily('regular'),
+    color: COLORS.gray[600],
+    marginBottom: 20,
     textAlign: "center",
-    marginBottom: 25,
-    color: "#e0e0e0",
+  },
+  roomInfoCard: {
+    width: "100%",
+    backgroundColor: COLORS.gray[50],
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    marginBottom: 24,
+  },
+  roomInfoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: COLORS.gray[200],
+  },
+  roomInfoLabel: {
+    fontSize: 14,
+    fontFamily: getFontFamily('regular'),
+    color: COLORS.gray[500],
+  },
+  roomInfoValue: {
+    fontSize: 14,
+    fontFamily: getFontFamily('semibold'),
+    color: COLORS.black,
+    flex: 1,
+    textAlign: "right",
+  },
+  roomInfoCode: {
+    fontSize: 16,
+    fontFamily: getFontFamily('bold'),
+    color: COLORS.primary,
+    letterSpacing: 2,
   },
   playButton: {
-    width: "60%",
-    borderRadius: 30,
-    overflow: "hidden",
-  },
-  playButtonGradient: {
-    paddingVertical: 15,
-    justifyContent: "center",
+    flexDirection: "row",
     alignItems: "center",
-    borderRadius: 30,
+    justifyContent: "center",
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: 12,
+    width: "100%",
+    gap: 8,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   playText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "bold",
+    color: COLORS.white,
+    fontSize: 16,
+    fontFamily: getFontFamily('semibold'),
   },
   cancelButton: {
-    marginTop: 14,
+    marginTop: 12,
     paddingVertical: 10,
-    paddingHorizontal: 30,
+    paddingHorizontal: 24,
   },
   cancelText: {
-    color: "#ffffffcc",
-    fontSize: 16,
+    color: COLORS.gray[500],
+    fontSize: 14,
+    fontFamily: getFontFamily('medium'),
     textDecorationLine: "underline",
   },
 });

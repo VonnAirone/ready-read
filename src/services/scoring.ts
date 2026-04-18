@@ -25,7 +25,7 @@ export const calculateScore = (spoken: string, target: string): number => {
   
   // Calculate similarity using Levenshtein distance
   const distance = levenshtein(spokenNormalized, targetNormalized);
-  const maxLength = Math.max(spoken.length, target.length);
+  const maxLength = Math.max(spokenNormalized.length, targetNormalized.length);
   const similarity = 1 - distance / maxLength;
   
   // Convert to percentage and ensure minimum threshold

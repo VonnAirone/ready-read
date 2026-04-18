@@ -225,6 +225,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   skipText: {
     color: '#fff',

@@ -18,9 +18,9 @@ export function useAudioRecording() {
         throw new Error('Failed to start recording');
       }
     } catch (error) {
-      throw error;
-    } finally {
+      setIsRecording(false);
       setIsProcessing(false);
+      throw error;
     }
   }, []);
 
@@ -33,12 +33,14 @@ export function useAudioRecording() {
         setIsRecording(false);
         setRecordingUri(result.uri);
       } else {
+        setIsRecording(false);
+        setIsProcessing(false);
         throw new Error(result.error || 'Failed to stop recording');
       }
     } catch (error) {
-      throw error;
-    } finally {
+      setIsRecording(false);
       setIsProcessing(false);
+      throw error;
     }
   }, []);
 

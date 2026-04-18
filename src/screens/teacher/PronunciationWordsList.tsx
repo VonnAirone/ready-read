@@ -4,7 +4,6 @@ import {
   View,
   Text,
   TextInput,
-  Button,
   StyleSheet,
   FlatList,
   Alert,
@@ -13,17 +12,11 @@ import {
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { useRoute } from "@react-navigation/native";
-import { auth, db } from "../../services/firebase";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  doc,
-  updateDoc,
-  deleteDoc,
-} from "firebase/firestore";
+import { supabase, auth } from "../../services/supabase";
 import { Ionicons } from "@expo/vector-icons";
+import { COLORS } from "../../constants/theme";
+import { ScreenLayout } from "../../components/ScreenLayout";
+import { getFontFamily } from "../../../styles/fonts";
 
 export default function ModifyPronunciation() {
   const route = useRoute<any>();
@@ -34,7 +27,6 @@ export default function ModifyPronunciation() {
   const [updatedWord, setUpdatedWord] = useState("");
   const [updatedDifficulty, setUpdatedDifficulty] = useState("easy");
 
-  // 🔹 Filter State
   const [filter, setFilter] = useState<string | null>(null);
   const [showFilter, setShowFilter] = useState(false);
 
@@ -42,30 +34,24 @@ export default function ModifyPronunciation() {
     const user = auth.currentUser;
     if (!user) return;
 
-    let q = query(
-      collection(db, "PronunciationRoom"),
-      where("roomId", "==", roomId),
-      where("createdBy", "==", user.uid)
-    );
+    const loadWords = async () => {
+      let query = supabase
+        .from('pronunciation_words')
+        .select('*')
+        .eq('room_id', roomId)
+        .eq('created_by', user.id);
+      if (filter) query = query.eq('difficulty', filter);
+      const { data } = await query;
+      setPronunciations(data ?? []);
+    };
+    loadWords();
 
-    if (filter) {
-      q = query(
-        collection(db, "PronunciationRoom"),
-        where("roomId", "==", roomId),
-        where("createdBy", "==", user.uid),
-        where("difficulty", "==", filter)
-      );
-    }
+    const channel = supabase
+      .channel('pronunciation_words_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pronunciation_words', filter: `room_id=eq.${roomId}` }, loadWords)
+      .subscribe();
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      setPronunciations(data);
-    });
-
-    return () => unsubscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [roomId, filter]);
 
   const handleUpdate = async () => {
@@ -74,41 +60,58 @@ export default function ModifyPronunciation() {
       return;
     }
     try {
-      const docRef = doc(db, "PronunciationRoom", editingId!);
-      await updateDoc(docRef, {
-        word: updatedWord,
-        difficulty: updatedDifficulty,
-      });
+      await supabase
+        .from('pronunciation_words')
+        .update({ word: updatedWord, difficulty: updatedDifficulty })
+        .eq('id', editingId!);
       Alert.alert("Updated", "Word updated successfully.");
       setEditingId(null);
     } catch (err) {
+      Alert.alert("Error", "Failed to update word. Please check your connection and try again.");
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
-      await deleteDoc(doc(db, "PronunciationRoom", id));
+      await supabase.from('pronunciation_words').delete().eq('id', id);
       Alert.alert("Deleted", "Word deleted successfully.");
     } catch (err) {
+      Alert.alert("Error", "Failed to delete word. Please check your connection and try again.");
     }
   };
 
+  const getDifficultyColor = (difficulty: string) => {
+    if (difficulty === "easy") return "#4CAF50";
+    if (difficulty === "medium") return "#FF9800";
+    return "#F44336";
+  };
+
   return (
-    <View style={styles.container}>
-      {/* 🔹 Header with Filter Icon */}
+    <ScreenLayout>
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Modify Pronunciations</Text>
-        <TouchableOpacity onPress={() => setShowFilter(!showFilter)}>
-          <Ionicons name="filter" size={26} color="black" />
+        <Text style={styles.title}>Pronunciation Words</Text>
+        <TouchableOpacity
+          style={styles.filterButton}
+          onPress={() => setShowFilter(!showFilter)}
+        >
+          <Ionicons name="filter" size={20} color="#374151" />
+          <Text style={styles.filterButtonText}>
+            {filter ? filter.charAt(0).toUpperCase() + filter.slice(1) : "All"}
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {/* 🔹 Filter Picker Dropdown */}
+      {/* Filter Dropdown */}
       {showFilter && (
-        <View style={styles.filterWrapper}>
+        <View style={styles.filterContainer}>
           <Picker
             selectedValue={filter}
-            onValueChange={(value) => setFilter(value)}
+            onValueChange={(value) => {
+              setFilter(value);
+              setShowFilter(false);
+            }}
+            style={styles.picker}
           >
             <Picker.Item label="All" value={null} />
             <Picker.Item label="Easy" value="easy" />
@@ -121,49 +124,70 @@ export default function ModifyPronunciation() {
       <FlatList
         data={pronunciations}
         keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
           <View style={styles.card}>
-            <Text style={styles.word}>
-              {item.word} ({item.difficulty})
-            </Text>
+            <View style={styles.cardContent}>
+              <Text style={styles.word}>{item.word}</Text>
+              <View style={[styles.difficultyBadge, { backgroundColor: getDifficultyColor(item.difficulty) }]}>
+                <Text style={styles.difficultyText}>{item.difficulty}</Text>
+              </View>
+            </View>
             <View style={styles.actions}>
               <TouchableOpacity
+                style={styles.editButton}
                 onPress={() => {
                   setEditingId(item.id);
                   setUpdatedWord(item.word);
                   setUpdatedDifficulty(item.difficulty);
                 }}
               >
-                <Text style={styles.edit}>✏️ Edit</Text>
+                <Ionicons name="pencil" size={16} color="white" />
+                <Text style={styles.editButtonText}>Edit</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleDelete(item.id)}>
-                <Text style={styles.delete}>🗑️ Delete</Text>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => handleDelete(item.id)}
+              >
+                <Ionicons name="trash" size={16} color="white" />
+                <Text style={styles.deleteButtonText}>Delete</Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="mic-off-outline" size={64} color="#D1D5DB" />
+            <Text style={styles.emptyText}>No words added yet</Text>
+          </View>
+        }
       />
 
-      {/* 🔹 Modal for Editing */}
+      {/* Edit Modal */}
       <Modal
         visible={editingId !== null}
         animationType="slide"
-        transparent={true}
+        transparent
         onRequestClose={() => setEditingId(null)}
       >
-        <View style={styles.modalBackground}>
+        <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Edit Pronunciation</Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Pronunciation</Text>
+              <TouchableOpacity onPress={() => setEditingId(null)}>
+                <Ionicons name="close" size={24} color={COLORS.primary} />
+              </TouchableOpacity>
+            </View>
 
-            <Text style={styles.label}>Word</Text>
+            <Text style={styles.inputLabel}>Word</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { fontFamily: getFontFamily('regular') }]}
               value={updatedWord}
               onChangeText={setUpdatedWord}
               placeholder="Word to pronounce"
             />
 
-            <Text style={styles.label}>Difficulty</Text>
+            <Text style={styles.inputLabel}>Difficulty</Text>
             <View style={styles.pickerWrapper}>
               <Picker
                 selectedValue={updatedDifficulty}
@@ -176,80 +200,218 @@ export default function ModifyPronunciation() {
             </View>
 
             <View style={styles.modalButtons}>
-              <Button title="Save" onPress={handleUpdate} color="green" />
-              <Button title="Cancel" onPress={() => setEditingId(null)} color="gray" />
+              <TouchableOpacity style={styles.saveButton} onPress={handleUpdate}>
+                <Text style={styles.saveButtonText}>Save</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setEditingId(null)}>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-    </View>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", padding: 20 },
   header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingTop: 20,
+  },
+  title: {
+    fontSize: 20,
+    fontFamily: getFontFamily('semibold'),
+    color: "#111827",
+  },
+  filterButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#F3F4F6",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  filterButtonText: {
+    fontSize: 14,
+    fontFamily: getFontFamily('medium'),
+    color: "#111827",
+  },
+  filterContainer: {
+    marginHorizontal: 20,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
+    marginBottom: 16,
+    overflow: "hidden",
+  },
+  picker: {
+    color: "#111827",
+  },
+  listContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    gap: 12,
+  },
+  card: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  cardContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  word: {
+    fontSize: 18,
+    fontFamily: getFontFamily('semibold'),
+    color: "#111827",
+    flex: 1,
+  },
+  difficultyBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    marginLeft: 12,
+  },
+  difficultyText: {
+    fontSize: 12,
+    fontFamily: getFontFamily('semibold'),
+    color: "white",
+    textTransform: "capitalize",
+  },
+  actions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  editButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLORS.tertiary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  editButtonText: {
+    fontSize: 13,
+    fontFamily: getFontFamily('medium'),
+    color: "white",
+  },
+  deleteButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#F44336",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  deleteButtonText: {
+    fontSize: 13,
+    fontFamily: getFontFamily('medium'),
+    color: "white",
+  },
+  emptyContainer: {
+    paddingVertical: 60,
+    alignItems: "center",
+    gap: 12,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontFamily: getFontFamily('medium'),
+    color: "#9CA3AF",
+    textAlign: "center",
+  },
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  modalContent: {
+    width: "100%",
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
-  },
-  title: { fontSize: 22, fontWeight: "bold" },
-  filterWrapper: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    marginBottom: 10,
-    overflow: "hidden",
-  },
-  card: {
-    padding: 15,
-    marginBottom: 10,
-    borderRadius: 10,
-    backgroundColor: "#f1f1f1",
-  },
-  word: { fontSize: 18, fontWeight: "500", marginBottom: 5 },
-  actions: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
-  edit: { color: "blue", fontWeight: "bold" },
-  delete: { color: "red", fontWeight: "bold" },
-  // 🔹 Modal Styles
-  modalBackground: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalContent: {
-    width: "90%",
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 20,
-    elevation: 10,
+    marginBottom: 20,
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 15,
-    textAlign: "center",
+    fontFamily: getFontFamily('bold'),
+    color: COLORS.primary,
   },
-  label: { fontSize: 14, fontWeight: "bold", marginBottom: 5 },
+  inputLabel: {
+    fontSize: 14,
+    fontFamily: getFontFamily('medium'),
+    color: COLORS.gray[700],
+    marginBottom: 6,
+  },
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 10,
-    marginBottom: 12,
+    borderColor: COLORS.gray[300],
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    fontSize: 16,
+    color: COLORS.black,
   },
   pickerWrapper: {
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    marginBottom: 12,
+    borderColor: COLORS.gray[300],
+    borderRadius: 10,
+    marginBottom: 20,
     overflow: "hidden",
   },
   modalButtons: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    marginTop: 10,
+    gap: 12,
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveButtonText: {
+    fontSize: 15,
+    fontFamily: getFontFamily('semibold'),
+    color: "white",
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: COLORS.gray[200],
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelButtonText: {
+    fontSize: 15,
+    fontFamily: getFontFamily('semibold'),
+    color: COLORS.gray[700],
   },
 });

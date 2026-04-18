@@ -1,3 +1,5 @@
+// TODO: This hook may be dead code. PersonalPracticeRoom.tsx was deleted and no
+// screen directly imports usePronunciationGame. Verify no active callers before removing.
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { ASSESSMENT_ITEMS, determineReaderLevel, calculateTotalScore, READER_LEVEL_INFO } from '../data/assessmentData';
 import { audioRecordingService } from '../services/audioRecording';
@@ -19,7 +21,8 @@ export interface UsePronunciationGameProps {
   onComplete?: (readerLevel: 1 | 2 | 3 | 4, results: AssessmentResult[]) => void;
 }
 
-export function usePronunciationGame({ onComplete }: UsePronunciationGameProps = {}) {
+export function usePronunciationGame(props?: UsePronunciationGameProps) {
+  const { onComplete } = props || {};
   const [assessmentPhase, setAssessmentPhase] = useState<AssessmentPhase>('intro');
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [assessmentResults, setAssessmentResults] = useState<AssessmentResult[]>([]);
@@ -27,7 +30,7 @@ export function usePronunciationGame({ onComplete }: UsePronunciationGameProps =
   const [isProcessing, setIsProcessing] = useState(false);
 
   const recordingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const stopRecordingRef = useRef<() => Promise<void>>();
+  const stopRecordingRef = useRef<(() => Promise<void>) | null | undefined>(null);
 
   const currentItem = ASSESSMENT_ITEMS[currentItemIndex];
   const isLastItem = currentItemIndex >= ASSESSMENT_ITEMS.length - 1;

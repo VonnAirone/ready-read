@@ -10,14 +10,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { auth, db } from "../../services/firebase";
-import {
-  doc,
-  setDoc,
-  getDoc,
-  Timestamp,
-} from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
+import { supabase, auth } from "../../services/supabase";
 import { Audio } from "expo-av";
 import * as Speech from "expo-speech";
 import { COLORS, GRADIENTS, FONT_SIZES, SPACING } from "../../constants/theme";
@@ -26,6 +19,8 @@ import { getFontFamily } from "../../../styles/fonts";
 import { useNavigation } from "@react-navigation/native";
 
 import { calculateScore } from "../../services/scoring";
+import { WordFeedbackCard } from "../../components/practice/WordFeedbackCard";
+import { MacroLevelPanel, MacroLevelRecord } from "../../components/practice/MacroLevelPanel";
 
 import { getAzureSpeechService, type AzureWordResult } from "../../services/azureSpeech";
 
@@ -36,15 +31,24 @@ import {
   type AssessmentItem
 } from "../../data/assessmentData";
 
-import { GAME_CONTENT } from "../../data/gameContent";
+import {
+  resetUserSession,
+  getOrCreateSessionId,
+} from "../../utils/contentIntegration";
+import { getContentByType } from "../../utils/contentLoader";
+import type { ContentItem } from "../../types/content";
 
 export default function RegularRoom({ route }: any) {
-  const { roomData, fromPersonalProgress = false } = route.params;
+  // Personal practice mode: roomData may be { isPersonalRoom: true } or fully absent
+  const params = route?.params || {};
+  const { roomData = { isPersonalRoom: true }, fromPersonalProgress = false } = params;
+
   const navigation = useNavigation<any>();
   
   const isPersonalRoom = roomData?.isPersonalRoom || fromPersonalProgress;
 
   const [words, setWords] = useState<string[]>([]);
+  const [contentItems, setContentItems] = useState<ContentItem[]>([]);
   const [currentAssessmentItem, setCurrentAssessmentItem] = useState<AssessmentItem | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
@@ -62,6 +66,9 @@ export default function RegularRoom({ route }: any) {
   const [assessmentResults, setAssessmentResults] = useState<(AssessmentItem & {score: number})[]>([]);
   const [assessmentPhase, setAssessmentPhase] = useState<'intro' | 'testing' | 'results'>('intro');
   const [studentLevel, setStudentLevel] = useState<1 | 2 | 3 | 4>(1);
+  // Tracks the furthest reader level ever reached — used to keep higher levels unlocked
+  // even when the student navigates back to an earlier reader level for extra practice.
+  const [highestUnlockedLevel, setHighestUnlockedLevel] = useState<1 | 2 | 3 | 4>(1);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [difficulty, setDifficulty] = useState<
     "easy" | "medium" | "hard"
@@ -99,6 +106,30 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   const [showMacroResults, setShowMacroResults] = useState(false);
   const [pendingMacroResults, setPendingMacroResults] = useState(false);
 
+  // Macro level map — status + best scores (mirrors PersonalPracticeRoom)
+  const [macroLevelMap, setMacroLevelMap] = useState<Record<number, MacroLevelRecord>>({
+    1: { status: 'in_progress', bestScore: 0, microBestScores: {} },
+    2: { status: 'locked',      bestScore: 0, microBestScores: {} },
+    3: { status: 'locked',      bestScore: 0, microBestScores: {} },
+    4: { status: 'locked',      bestScore: 0, microBestScores: {} },
+  });
+  const [panelVisible, setPanelVisible] = useState(false);
+  // Best score per item: key = `${macroLevel}-${contentType}-${index}`
+  const [itemBestScores, setItemBestScores] = useState<Record<string, number>>({});
+
+  // In-memory snapshots per reader level — updated synchronously before any setState calls
+  // so panel navigation always restores the correct state without Firestore timing issues.
+  const readerLevelSnapshotsRef = useRef<Record<number, {
+    currentMacroLevel: number;
+    currentContentType: 'words' | 'sentences' | 'paragraphs';
+    currentIndex: number;
+    scoresArray: number[];
+    macroLevelProgress: any;
+    macroLevelMap: any;
+    itemBestScores: any;
+    showMacroResults: boolean;
+  }>>({});
+
   // Handle pending macro results - show results when progress data is available
   useEffect(() => {
     if (pendingMacroResults && macroLevelProgress && Object.keys(macroLevelProgress).length > 0) {
@@ -122,20 +153,32 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   // Safety check: Load content if words array is empty
   useEffect(() => {
     if (words.length === 0 && !isAssessment) {
-      const fallbackWords = getReaderLevelWords(studentLevel);
-      setWords(fallbackWords);
-      setUsingStarter(fallbackWords === STARTER_WORDS);
+      (async () => {
+        try {
+          const fallbackItems = await getReaderLevelWords(studentLevel);
+          if (fallbackItems.length > 0) {
+            setContentItems(fallbackItems);
+            setWords(fallbackItems.map(item => item.text));
+            setUsingStarter(false);
+          } else {
+            setContentItems([]);
+            setWords(STARTER_WORDS);
+            setUsingStarter(true);
+          }
+        } catch (error) {
+          console.error('[RegularRoom] Failed to load fallback words:', error);
+          setContentItems([]);
+          setWords(STARTER_WORDS);
+          setUsingStarter(true);
+        }
+      })();
     }
     setIsContentLoading(words.length === 0);
   }, [words, isAssessment, studentLevel]);
 
-  // 🔹 Get practice words based on Reader Level
-  const getReaderLevelWords = (readerLevel: 1 | 2 | 3 | 4): string[] => {
-    const readerLevelContent = GAME_CONTENT[`reader-level-${readerLevel}`];
-    if (readerLevelContent && readerLevelContent.macroLevels.macroLevel1.words.length > 0) {
-      return readerLevelContent.macroLevels.macroLevel1.words.slice(0, 10).map(item => item.content);
-    }
-    return STARTER_WORDS; // Fallback if no content available
+  // 🔹 Get words for Reader Level, Macro Level 1 (sequential)
+  const getReaderLevelWords = async (readerLevel: 1 | 2 | 3 | 4): Promise<ContentItem[]> => {
+    return loadMacroLevelContent(readerLevel, 1, 'words');
   };
 
   // 🔹 Get Reader Level display name
@@ -160,21 +203,17 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     return colors[level];
   };
 
-  // 🔹 Load content for current macro level and content type
-  const loadMacroLevelContent = (readerLevel: 1 | 2 | 3 | 4, macroLevel: 1 | 2 | 3 | 4, contentType: 'words' | 'sentences' | 'paragraphs') => {
-    const readerLevelContent = GAME_CONTENT[`reader-level-${readerLevel}`];
-    if (!readerLevelContent) {
+  // 🔹 Load sequential content for a macro level and content type (no randomization = no duplicates)
+  const loadMacroLevelContent = async (readerLevel: 1 | 2 | 3 | 4, macroLevel: 1 | 2 | 3 | 4, contentType: 'words' | 'sentences' | 'paragraphs'): Promise<ContentItem[]> => {
+    try {
+      const typeKey = contentType === 'words' ? 'word' : contentType === 'sentences' ? 'sentence' : 'paragraph';
+      const items = await getContentByType(`r${readerLevel}`, `m${macroLevel}`, typeKey);
+      // Take exactly 10 items in sequential order
+      return items.slice(0, 10);
+    } catch (error) {
+      console.error('[RegularRoom] Failed to load content:', error);
       return [];
     }
-
-    const macroLevelContent = readerLevelContent.macroLevels[`macroLevel${macroLevel}` as keyof typeof readerLevelContent.macroLevels];
-    if (!macroLevelContent) {
-      return [];
-    }
-
-    // Return exactly 10 items for each content type (words, sentences, paragraphs)
-    const content = macroLevelContent[contentType].slice(0, 10).map(item => item.content);
-    return content;
   };
 
   // 🔹 Complete current content type and move to next
@@ -206,47 +245,48 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       setScoresArray([]);
       // Reset UI state for new content type
       setRecognizedText("");
-        setWordResults([]);
+      setWordResults([]);
       setScore(null);
       setCompleted(false);
-      const sentenceContent = loadMacroLevelContent(studentLevel, currentMacroLevel as 1 | 2 | 3 | 4, 'sentences');
-      setWords(sentenceContent);
+      const sentenceContent = await loadMacroLevelContent(studentLevel, currentMacroLevel as 1 | 2 | 3 | 4, 'sentences');
+      
+      if (!sentenceContent || sentenceContent.length === 0) {
+        Alert.alert("No Content", "No sentences available for this level. Please try again later.");
+        return;
+      }
+      
+      setContentItems(sentenceContent);
+      setWords(sentenceContent.map(item => item.text));
       
       // Save progress immediately after transitioning to sentences
       const user = auth.currentUser;
       if (user) {
         try {
           if (isPersonalRoom) {
-            const personalDocId = `${user.uid}_PERSONAL_PRACTICE`;
-            await setDoc(
-              doc(db, "StudentProgress", personalDocId),
-              {
-                currentMacroLevel,
-                currentContentType: 'sentences',
-                macroLevelProgress: updatedProgress,
-                currentIndex: 0,
-                scoresArray: [],
-                updatedAt: Timestamp.now(),
-              },
-              { merge: true }
-            );
+            await supabase.from('student_progress').upsert({
+              id: `${user.id}_PERSONAL_PRACTICE`,
+              user_id: user.id,
+              current_macro_level: currentMacroLevel,
+              current_content_type: 'sentences',
+              macro_level_progress: updatedProgress,
+              current_index: 0,
+              scores_array: [],
+              updated_at: new Date().toISOString(),
+            });
           } else {
-            const docId = `${user.uid}_${roomData.roomCode}`;
-            await setDoc(
-              doc(db, "StudentProgress", docId),
-              {
-                currentMacroLevel,
-                currentContentType: 'sentences',
-                macroLevelProgress: updatedProgress,
-                currentWordIndex: 0,
-                scores: [],
-                updatedAt: Timestamp.now(),
-              },
-              { merge: true }
-            );
+            await supabase.from('student_progress').upsert({
+              id: `${user.id}_${roomData.roomCode}`,
+              user_id: user.id,
+              current_macro_level: currentMacroLevel,
+              current_content_type: 'sentences',
+              macro_level_progress: updatedProgress,
+              current_word_index: 0,
+              scores: [],
+              updated_at: new Date().toISOString(),
+            });
           }
-
         } catch (error) {
+          console.error('[RegularRoom] Failed to save words→sentences transition:', error);
         }
       }
     } else if (currentContentType === 'sentences') {
@@ -255,47 +295,48 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       setScoresArray([]);
       // Reset UI state for new content type
       setRecognizedText("");
-        setWordResults([]);
+      setWordResults([]);
       setScore(null);
       setCompleted(false);
-      const paragraphContent = loadMacroLevelContent(studentLevel, currentMacroLevel as 1 | 2 | 3 | 4, 'paragraphs');
-      setWords(paragraphContent);
+      const paragraphContent = await loadMacroLevelContent(studentLevel, currentMacroLevel as 1 | 2 | 3 | 4, 'paragraphs');
+      
+      if (!paragraphContent || paragraphContent.length === 0) {
+        Alert.alert("No Content", "No paragraphs available for this level. Please try again later.");
+        return;
+      }
+      
+      setContentItems(paragraphContent);
+      setWords(paragraphContent.map(item => item.text));
       
       // Save progress immediately after transitioning to paragraphs
       const user = auth.currentUser;
       if (user) {
         try {
           if (isPersonalRoom) {
-            const personalDocId = `${user.uid}_PERSONAL_PRACTICE`;
-            await setDoc(
-              doc(db, "StudentProgress", personalDocId),
-              {
-                currentMacroLevel,
-                currentContentType: 'paragraphs',
-                macroLevelProgress: updatedProgress,
-                currentIndex: 0,
-                scoresArray: [],
-                updatedAt: Timestamp.now(),
-              },
-              { merge: true }
-            );
+            await supabase.from('student_progress').upsert({
+              id: `${user.id}_PERSONAL_PRACTICE`,
+              user_id: user.id,
+              current_macro_level: currentMacroLevel,
+              current_content_type: 'paragraphs',
+              macro_level_progress: updatedProgress,
+              current_index: 0,
+              scores_array: [],
+              updated_at: new Date().toISOString(),
+            });
           } else {
-            const docId = `${user.uid}_${roomData.roomCode}`;
-            await setDoc(
-              doc(db, "StudentProgress", docId),
-              {
-                currentMacroLevel,
-                currentContentType: 'paragraphs',
-                macroLevelProgress: updatedProgress,
-                currentWordIndex: 0,
-                scores: [],
-                updatedAt: Timestamp.now(),
-              },
-              { merge: true }
-            );
+            await supabase.from('student_progress').upsert({
+              id: `${user.id}_${roomData.roomCode}`,
+              user_id: user.id,
+              current_macro_level: currentMacroLevel,
+              current_content_type: 'paragraphs',
+              macro_level_progress: updatedProgress,
+              current_word_index: 0,
+              scores: [],
+              updated_at: new Date().toISOString(),
+            });
           }
-
         } catch (error) {
+          console.error('[RegularRoom] Failed to save sentences→paragraphs transition:', error);
         }
       }
     } else {
@@ -323,69 +364,91 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     };
     
     setMacroLevelProgress(updatedProgress);
-    
+
+    // Mark macro level as completed and unlock the next one
+    setMacroLevelMap(prev => {
+      const levelRecord = prev[currentMacroLevel] ?? { status: 'in_progress', bestScore: 0, microBestScores: {} };
+      // Compute best score = average of all item best scores for this level
+      const allBests = Object.entries(itemBestScores)
+        .filter(([k]) => k.startsWith(`${currentMacroLevel}-`))
+        .map(([, v]) => v);
+      const avgBest = allBests.length > 0
+        ? Math.round(allBests.reduce((a, b) => a + b, 0) / allBests.length)
+        : levelRecord.bestScore;
+
+      const updated: Record<number, MacroLevelRecord> = {
+        ...prev,
+        [currentMacroLevel]: {
+          ...levelRecord,
+          status: 'completed',
+          bestScore: Math.max(avgBest, levelRecord.bestScore),
+          completedAt: new Date().toISOString(),
+        },
+      };
+      const next = currentMacroLevel + 1;
+      if (next <= 4 && updated[next]?.status === 'locked') {
+        updated[next] = { ...updated[next], status: 'in_progress' };
+      }
+      return updated;
+    });
+
     // Immediately save the completion state BEFORE showing results
     const user = auth.currentUser;
     if (user) {
       try {
         if (isPersonalRoom) {
-          const personalDocId = `${user.uid}_PERSONAL_PRACTICE`;
-          const saveData = {
-            playerName,
+          await supabase.from('student_progress').upsert({
+            id: `${user.id}_PERSONAL_PRACTICE`,
+            user_id: user.id,
+            player_name: playerName,
             name: playerName,
             email: user.email || "",
-            userId: user.uid,
-            roomCode: "PERSONAL_PRACTICE",
-            roomName: "Personal Practice Room",
-            currentIndex: currentIndex,
-            totalWords: words.length,
+            room_code: "PERSONAL_PRACTICE",
+            room_name: "Personal Practice Room",
+            current_index: currentIndex,
+            total_words: words.length,
             scores: scoresArray,
-            scoresArray: scoresArray,
-            studentLevel,
-            readerLevel: studentLevel, // Alias for consistency
-            lastWord: currentWord || "",
+            scores_array: scoresArray,
+            student_level: studentLevel,
+            reader_level: studentLevel,
+            last_word: currentWord || "",
             completed: currentIndex >= words.length - 1,
-            currentMacroLevel,
-            macroLevel: currentMacroLevel, // Alias for consistency
-            currentContentType,
-            macroLevelProgress: updatedProgress,
-            showMacroResults: true, // Critical: Save the results flag immediately
-            isPersonalPractice: true,
-            updatedAt: Timestamp.now(),
-          };
-          
-          // WAIT for the save to complete before showing results
-          await setDoc(doc(db, "StudentProgress", personalDocId), saveData, { merge: true });
+            current_macro_level: currentMacroLevel,
+            macro_level: currentMacroLevel,
+            current_content_type: currentContentType,
+            macro_level_progress: updatedProgress,
+            show_macro_results: true,
+            is_personal_practice: true,
+            updated_at: new Date().toISOString(),
+          });
         } else {
-          const docId = `${user.uid}_${roomData.roomCode}`;
-          const saveData = {
-            userId: user.uid,
-            playerName,
+          await supabase.from('student_progress').upsert({
+            id: `${user.id}_${roomData.roomCode}`,
+            user_id: user.id,
+            player_name: playerName,
             name: playerName,
             email: user.email || "",
-            roomCode: roomData.roomCode,
-            roomName: roomData.roomName || "Unknown",
-            teacherId: roomData.teacherId || roomData.createdBy || "",
-            currentWordIndex: currentIndex,
-            totalWords: words.length,
+            room_code: roomData.roomCode,
+            room_name: roomData.roomName || "Unknown",
+            teacher_id: roomData.teacherId || roomData.createdBy || "",
+            current_word_index: currentIndex,
+            total_words: words.length,
             scores: scoresArray,
-            lastWord: currentWord || "",
+            last_word: currentWord || "",
             completed: currentIndex >= words.length - 1,
-            currentMacroLevel,
-            currentContentType,
-            macroLevelProgress: updatedProgress,
-            showMacroResults: true, // Critical: Save the results flag immediately
-            updatedAt: Timestamp.now(),
-          };
-          
-          // WAIT for the save to complete before showing results
-          await setDoc(doc(db, "StudentProgress", docId), saveData, { merge: true });
+            current_macro_level: currentMacroLevel,
+            current_content_type: currentContentType,
+            macro_level_progress: updatedProgress,
+            show_macro_results: true,
+            updated_at: new Date().toISOString(),
+          });
         }
         
         // Only NOW show the results after save is complete
         setPendingMacroResults(true);
         
       } catch (error) {
+        console.error('[RegularRoom] Failed to save macro level completion:', error);
         // Still show results even if save fails
         setPendingMacroResults(true);
       }
@@ -403,60 +466,57 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     const user = auth.currentUser;
     if (user) {
       try {
-        const baseData = {
-          userId: user.uid,
-          playerName,
-          name: playerName,
-          email: user.email || "",
-          showMacroResults: false, // Clear the results flag immediately
-          updatedAt: Timestamp.now(),
-        };
-        
         if (isPersonalRoom) {
-          const personalDocId = `${user.uid}_PERSONAL_PRACTICE`;
-          await setDoc(
-            doc(db, "StudentProgress", personalDocId),
-            baseData,
-            { merge: true }
-          );
+          await supabase.from('student_progress').upsert({
+            id: `${user.id}_PERSONAL_PRACTICE`,
+            user_id: user.id,
+            player_name: playerName,
+            name: playerName,
+            email: user.email || "",
+            show_macro_results: false,
+            updated_at: new Date().toISOString(),
+          });
         } else {
-          const docId = `${user.uid}_${roomData.roomCode}`;
-          await setDoc(
-            doc(db, "StudentProgress", docId),
-            {
-              ...baseData,
-              roomCode: roomData.roomCode,
-              roomName: roomData.roomName || "Unknown",
-              teacherId: roomData.teacherId || roomData.createdBy || "",
-            },
-            { merge: true }
-          );
+          await supabase.from('student_progress').upsert({
+            id: `${user.id}_${roomData.roomCode}`,
+            user_id: user.id,
+            player_name: playerName,
+            name: playerName,
+            email: user.email || "",
+            room_code: roomData.roomCode,
+            room_name: roomData.roomName || "Unknown",
+            teacher_id: roomData.teacherId || roomData.createdBy || "",
+            show_macro_results: false,
+            updated_at: new Date().toISOString(),
+          });
         }
       } catch (error) {
+        console.error('[RegularRoom] Failed to save macro completion flag:', error);
       }
     }
-    
+
     if (advance && currentMacroLevel < 4) {
+      // Compute next level once — avoids stale closure in functional state updaters
+      const newMacroLevel = (currentMacroLevel + 1) as 1 | 2 | 3 | 4;
       // Advance to next macro level
-      setCurrentMacroLevel(prev => prev + 1);
+      setCurrentMacroLevel(newMacroLevel);
       setCurrentContentType('words');
       setCurrentIndex(0);
       setScoresArray([]);
       setMacroLevelProgress(prev => ({
         ...prev,
-        [currentMacroLevel + 1]: {
+        [newMacroLevel]: {
           words: { completed: false, scores: [], totalScore: 0 },
           sentences: { completed: false, scores: [], totalScore: 0 },
           paragraphs: { completed: false, scores: [], totalScore: 0 }
         }
       }));
-      
-      const newMacroLevel = (currentMacroLevel + 1) as 1 | 2 | 3 | 4;
-      const wordContent = loadMacroLevelContent(studentLevel, newMacroLevel, 'words');
-      setWords(wordContent);
+      const wordContent = await loadMacroLevelContent(studentLevel, newMacroLevel, 'words');
+      setContentItems(wordContent || []);
+      setWords((wordContent || []).map(item => item.text));
       // Reset UI state for new macro level
       setRecognizedText("");
-        setWordResults([]);
+      setWordResults([]);
       setScore(null);
       setCompleted(false);
     } else {
@@ -473,49 +533,205 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         }
       }));
       
-      const wordContent = loadMacroLevelContent(studentLevel, currentMacroLevel as 1 | 2 | 3 | 4, 'words');
-      setWords(wordContent);
+      const wordContent = await loadMacroLevelContent(studentLevel, currentMacroLevel as 1 | 2 | 3 | 4, 'words');
+      setContentItems(wordContent || []);
+      setWords((wordContent || []).map(item => item.text));
       // Reset UI state for repeat
       setRecognizedText("");
-        setWordResults([]);
+      setWordResults([]);
       setScore(null);
       setCompleted(false);
     }
     
-    // Save progress with updated state
-    setTimeout(() => saveProgress(), 100);
+    // Save progress
+    saveProgress();
+  };
+
+  // Navigate to a different reader level — saves current progress in-memory then restores target level
+  const navigateToReaderLevel = async (targetReaderLevel: number) => {
+    if (targetReaderLevel < 1 || targetReaderLevel > 4) return;
+
+    // ── Step 1: Snapshot current level synchronously into the ref ──────────
+    // This MUST happen before any setState calls so we capture the state
+    // values from this render's closure, not a stale future render.
+    readerLevelSnapshotsRef.current[studentLevel] = {
+      currentMacroLevel,
+      currentContentType,
+      currentIndex,
+      scoresArray,
+      macroLevelProgress,
+      macroLevelMap,
+      itemBestScores,
+      showMacroResults,
+    };
+
+    // Also fire-and-forget a Firestore save so progress survives app restarts
+    if (isPersonalRoom) {
+      saveProgress();
+    }
+
+    // ── Step 2: Reset transient UI ─────────────────────────────────────────
+    setRecognizedText("");
+    setWordResults([]);
+    setScore(null);
+    setCompleted(false);
+    setShowMacroResults(false);
+    setPendingMacroResults(false);
+    setStudentLevel(targetReaderLevel as 1 | 2 | 3 | 4);
+    setPanelVisible(false);
+
+    // ── Step 3: Restore target level from in-memory snapshot ───────────────
+    const snapshot = readerLevelSnapshotsRef.current[targetReaderLevel];
+
+    if (snapshot) {
+      const { currentMacroLevel: macro, currentContentType: contentType } = snapshot;
+      setCurrentMacroLevel(macro);
+      setCurrentContentType(contentType as ContentType);
+      setCurrentIndex(snapshot.currentIndex);
+      setScoresArray(snapshot.scoresArray);
+      if (snapshot.macroLevelProgress) setMacroLevelProgress(snapshot.macroLevelProgress);
+      if (snapshot.macroLevelMap) setMacroLevelMap(snapshot.macroLevelMap);
+      if (snapshot.itemBestScores) setItemBestScores(snapshot.itemBestScores);
+
+      const content = await loadMacroLevelContent(
+        targetReaderLevel as 1 | 2 | 3 | 4,
+        macro as 1 | 2 | 3 | 4,
+        contentType as 'words' | 'sentences' | 'paragraphs'
+      );
+      setContentItems(content || []);
+      setWords((content || []).map(item => item.text));
+    } else {
+      // First visit to this level — check Supabase for a persisted snapshot
+      let restoredFromFirestore = false;
+      const user = auth.currentUser;
+      if (isPersonalRoom && user) {
+        try {
+          const { data: progressRow } = await supabase
+            .from('student_progress')
+            .select('reader_level_progress')
+            .eq('id', `${user.id}_PERSONAL_PRACTICE`)
+            .single();
+          if (progressRow) {
+            const saved = progressRow.reader_level_progress?.[targetReaderLevel];
+            if (saved) {
+              const macro = saved.currentMacroLevel ?? 1;
+              const contentType: ContentType = saved.currentContentType ?? 'words';
+              setCurrentMacroLevel(macro);
+              setCurrentContentType(contentType);
+              setCurrentIndex(saved.currentIndex ?? 0);
+              setScoresArray(saved.scoresArray ?? []);
+              if (saved.macroLevelProgress) setMacroLevelProgress(saved.macroLevelProgress);
+              if (saved.macroLevelMap) setMacroLevelMap(saved.macroLevelMap);
+              if (saved.itemBestScores) setItemBestScores(saved.itemBestScores);
+
+              // Also populate in-memory snapshot for subsequent navigations
+              readerLevelSnapshotsRef.current[targetReaderLevel] = saved;
+
+              const content = await loadMacroLevelContent(
+                targetReaderLevel as 1 | 2 | 3 | 4,
+                macro as 1 | 2 | 3 | 4,
+                contentType as 'words' | 'sentences' | 'paragraphs'
+              );
+              setContentItems(content || []);
+              setWords((content || []).map(item => item.text));
+              restoredFromFirestore = true;
+            }
+          }
+        } catch (_) {
+          // Fall through to fresh start
+        }
+      }
+
+      if (!restoredFromFirestore) {
+        // No saved state — start fresh at words for this reader level
+        setCurrentMacroLevel(1);
+        setCurrentContentType('words');
+        setCurrentIndex(0);
+        setScoresArray([]);
+        setMacroLevelMap({
+          1: { status: 'in_progress', bestScore: 0, microBestScores: {} },
+          2: { status: 'locked',      bestScore: 0, microBestScores: {} },
+          3: { status: 'locked',      bestScore: 0, microBestScores: {} },
+          4: { status: 'locked',      bestScore: 0, microBestScores: {} },
+        });
+        const content = await loadMacroLevelContent(targetReaderLevel as 1 | 2 | 3 | 4, 1, 'words');
+        setContentItems(content || []);
+        setWords((content || []).map(item => item.text));
+      }
+    }
+  };
+
+  // Navigate to any unlocked or completed macro level via the panel
+  const navigateToMacroLevel = async (targetLevel: number) => {
+    const record = macroLevelMap[targetLevel];
+    if (!record || record.status === 'locked') return;
+
+    setCurrentMacroLevel(targetLevel);
+    setCurrentContentType('words');
+    setCurrentIndex(0);
+    setScoresArray([]);
+    setRecognizedText("");
+    setWordResults([]);
+    setScore(null);
+    setCompleted(false);
+    setShowMacroResults(false);
+    setPendingMacroResults(false);
+
+    const wordContent = await loadMacroLevelContent(studentLevel, targetLevel as 1 | 2 | 3 | 4, 'words');
+    setContentItems(wordContent || []);
+    setWords((wordContent || []).map(item => item.text));
+    
+    // Save macro level navigation
+    const user = auth.currentUser;
+    if (user && !isPersonalRoom) {
+      try {
+        const docId = `${user.id}_${roomData.roomCode}`;
+        await supabase.from('student_progress').upsert({
+          id: docId,
+          user_id: user.id,
+          current_macro_level: targetLevel,
+          current_content_type: 'words',
+          current_index: 0,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error('[RegularRoom] Failed to save macro level navigation:', error);
+      }
+    }
+    
+    setPanelVisible(false);
   };
 
   // Setup personal practice room
   const setupPersonalPracticeRoom = async (user: any) => {
     try {
-      // Use StudentProgress collection with personal flag instead of separate collection
-      const personalDocId = `${user.uid}_PERSONAL_PRACTICE`;
-      const personalProgressSnap = await getDoc(doc(db, "StudentProgress", personalDocId));
-      
-      if (personalProgressSnap.exists()) {
-        const data = personalProgressSnap.data();
-        
+      const personalDocId = `${user.id}_PERSONAL_PRACTICE`;
+      const { data: progressRow } = await supabase
+        .from('student_progress')
+        .select('*')
+        .eq('id', personalDocId)
+        .single();
+
+      if (progressRow) {
         // Load personal progress data
         setIsAssessment(false);
         setUsingStarter(false);
-        setStudentLevel(data.studentLevel || 1);
-        
+        const loadedLevel = (progressRow.student_level || 1) as 1 | 2 | 3 | 4;
+        setStudentLevel(loadedLevel);
+        setHighestUnlockedLevel(loadedLevel);
+
         // Initialize macro level progression
-        const level = data.studentLevel || 1;
-        const macro = data.currentMacroLevel || 1;
-        const contentType = data.currentContentType || 'words';
-        
+        const level = progressRow.student_level || 1;
+        const macro = progressRow.current_macro_level || 1;
+        const contentType = progressRow.current_content_type || 'words';
+
         setCurrentMacroLevel(macro);
         setCurrentContentType(contentType as ContentType);
-        
 
-        
         // Initialize or restore macro level progress FIRST
-        if (data.macroLevelProgress) {
-          setMacroLevelProgress(data.macroLevelProgress);
+        if (progressRow.macro_level_progress) {
+          setMacroLevelProgress(progressRow.macro_level_progress);
         } else {
-          // Initialize fresh macro level progress
           setMacroLevelProgress(prev => ({
             ...prev,
             [macro]: {
@@ -525,31 +741,48 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             }
           }));
         }
-        
-        // Check if macro results should be shown - AFTER setting progress data
-        if (data.showMacroResults) {
-          // Use pending flag to ensure macro progress state is set before showing results
-          setPendingMacroResults(true);
-          return; // Don't load content, just show results
+
+        // Restore macroLevelMap and itemBestScores
+        if (progressRow.macro_level_map) {
+          setMacroLevelMap(progressRow.macro_level_map);
+        } else {
+          setMacroLevelMap(prev => {
+            const restored: Record<number, MacroLevelRecord> = { ...prev };
+            for (let l = 1; l <= 4; l++) {
+              if (l < macro) restored[l] = { ...restored[l], status: 'completed' };
+              else if (l === macro) restored[l] = { ...restored[l], status: 'in_progress' };
+              else restored[l] = { ...restored[l], status: 'locked' };
+            }
+            return restored;
+          });
         }
-        
+        if (progressRow.item_best_scores) {
+          setItemBestScores(progressRow.item_best_scores);
+        }
+
+        // Check if macro results should be shown - AFTER setting progress data
+        if (progressRow.show_macro_results) {
+          setPendingMacroResults(true);
+          return;
+        }
+
         // Load content for current state
-        const contentToLoad = loadMacroLevelContent(
-          level as 1 | 2 | 3 | 4, 
-          macro as 1 | 2 | 3 | 4, 
+        const contentToLoad = await loadMacroLevelContent(
+          level as 1 | 2 | 3 | 4,
+          macro as 1 | 2 | 3 | 4,
           contentType as 'words' | 'sentences' | 'paragraphs'
         );
-        setWords(contentToLoad);
-        
-        // Set current index based on current content type, not saved index
-        if (data.currentIndex !== undefined && data.currentContentType === contentType) {
-          setCurrentIndex(data.currentIndex);
+        setContentItems(contentToLoad || []);
+        setWords((contentToLoad || []).map(item => item.text));
+
+        if (progressRow.current_index !== undefined && progressRow.current_content_type === contentType) {
+          setCurrentIndex(progressRow.current_index);
         } else {
-          setCurrentIndex(0); // Start fresh for new content type
+          setCurrentIndex(0);
         }
-        
-        if (Array.isArray(data.scoresArray) && data.currentContentType === contentType) {
-          setScoresArray(data.scoresArray);
+
+        if (Array.isArray(progressRow.scores_array) && progressRow.current_content_type === contentType) {
+          setScoresArray(progressRow.scores_array);
         } else {
           setScoresArray([]);
         }
@@ -558,6 +791,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         setIsAssessment(false);
         setUsingStarter(false);
         setStudentLevel(1);
+        setHighestUnlockedLevel(1);
         setCurrentMacroLevel(1);
         setCurrentContentType('words');
         setCurrentIndex(0);
@@ -573,10 +807,12 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         }));
         
         // Load words for Reader Level 1, Macro Level 1
-        const wordContent = loadMacroLevelContent(1, 1, 'words');
-        setWords(wordContent);
+        const wordContent = await loadMacroLevelContent(1, 1, 'words');
+        setContentItems(wordContent || []);
+        setWords((wordContent || []).map(item => item.text));
       }
     } catch (error) {
+      setContentItems([]);
       setWords(STARTER_WORDS);
       setUsingStarter(true);
     }
@@ -593,32 +829,37 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
 
   // 🔹 Auth listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const user = session?.user ?? null;
       if (user) {
-        setUserId(user.uid);
+        setUserId(user.id);
         try {
-          const snap = await getDoc(doc(db, "Playername", user.uid));
-          setPlayerName(
-            snap.exists() ? snap.data().playerName || "Anonymous" : "Anonymous"
-          );
-        } catch {
+          const { data: playerRow } = await supabase
+            .from('player_names')
+            .select('player_name')
+            .eq('id', user.id)
+            .single();
+          setPlayerName(playerRow?.player_name || "Anonymous");
+        } catch (error) {
+          console.error('[RegularRoom] Failed to load player name:', error);
           setPlayerName("Anonymous");
         }
       } else {
-        // Only navigate away if we're sure there's no user and auth has finished loading
         setPlayerName("Anonymous");
         setUserId(null);
-        // Add a small delay to ensure this isn't just an auth restoration delay
         setTimeout(() => {
           if (!auth.currentUser) {
-            // Uncomment the line below if you want to redirect to login on logout
-            // navigation.navigate('Login');
+            Alert.alert(
+              'Session Expired',
+              'Your session has expired. Please log in again.',
+              [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
+            );
           }
         }, 1000);
       }
       setIsAuthLoading(false);
     });
-    return () => unsubscribe();
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -629,6 +870,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       setIsContentLoading(true);
       const user = auth.currentUser;
       if (!user) {
+        setContentItems([]);
         setWords(STARTER_WORDS);
         setUsingStarter(true);
         setIsContentLoading(false);
@@ -642,56 +884,77 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         return;
       }
       
-      const docId = `${user.uid}_${roomData.roomCode}`;
       try {
-        const snap = await getDoc(doc(db, "StudentProgress", docId));
-        if (snap.exists()) {
-          const data = snap.data();
-          
+        const { data: progressRow } = await supabase
+          .from('student_progress')
+          .select('*')
+          .eq('id', `${user.id}_${roomData.roomCode}`)
+          .single();
+
+        if (progressRow) {
           // Check if student has completed assessment
-          if (data.assessmentCompleted && data.studentLevel) {
+          if (progressRow.assessment_completed && progressRow.student_level) {
             setIsAssessment(false);
             setUsingStarter(false);
-            setStudentLevel(data.studentLevel);
-            // Don't set assessmentPhase - we're going straight to practice
-            
+            setStudentLevel(progressRow.student_level);
+            setHighestUnlockedLevel(progressRow.student_level as 1 | 2 | 3 | 4);
+
             // Restore progress state
-            if (data.currentWordIndex !== undefined) {
-              setCurrentIndex(data.currentWordIndex);
+            if (progressRow.current_word_index !== undefined) {
+              setCurrentIndex(progressRow.current_word_index);
             }
-            if (Array.isArray(data.scores)) {
-              setScoresArray(data.scores);
+            if (Array.isArray(progressRow.scores)) {
+              setScoresArray(progressRow.scores);
             }
-            
+
             // Restore macro level progress state
-            if (data.currentMacroLevel !== undefined) {
-              setCurrentMacroLevel(data.currentMacroLevel);
+            if (progressRow.current_macro_level !== undefined) {
+              setCurrentMacroLevel(progressRow.current_macro_level);
             }
-            if (data.currentContentType) {
-              setCurrentContentType(data.currentContentType);
+            if (progressRow.current_content_type) {
+              setCurrentContentType(progressRow.current_content_type);
             }
-            if (data.macroLevelProgress) {
-              setMacroLevelProgress(data.macroLevelProgress);
+            if (progressRow.macro_level_progress) {
+              setMacroLevelProgress(progressRow.macro_level_progress);
             }
-            
+
+            // Restore macroLevelMap and itemBestScores
+            if (progressRow.macro_level_map) {
+              setMacroLevelMap(progressRow.macro_level_map);
+            } else {
+              const macro = progressRow.current_macro_level || 1;
+              setMacroLevelMap(prev => {
+                const restored: Record<number, MacroLevelRecord> = { ...prev };
+                for (let l = 1; l <= 4; l++) {
+                  if (l < macro) restored[l] = { ...restored[l], status: 'completed' };
+                  else if (l === macro) restored[l] = { ...restored[l], status: 'in_progress' };
+                  else restored[l] = { ...restored[l], status: 'locked' };
+                }
+                return restored;
+              });
+            }
+            if (progressRow.item_best_scores) {
+              setItemBestScores(progressRow.item_best_scores);
+            }
             // Check if macro results should be shown
-            if (data.showMacroResults) {
-              // Use pending mechanism like personal rooms
+            if (progressRow.show_macro_results) {
               setPendingMacroResults(true);
               setIsContentLoading(false);
-              return; // Don't load content, just show results
+              return;
             }
-            
+
             // Load appropriate content based on progress
-            const contentToLoad = loadMacroLevelContent(
-              data.studentLevel,
-              data.currentMacroLevel || 1,
-              data.currentContentType || 'words'
+            const contentToLoad = await loadMacroLevelContent(
+              progressRow.student_level,
+              progressRow.current_macro_level || 1,
+              progressRow.current_content_type || 'words'
             );
-            
-            if (contentToLoad.length > 0) {
-              setWords(contentToLoad);
+
+            if (contentToLoad && contentToLoad.length > 0) {
+              setContentItems(contentToLoad);
+              setWords(contentToLoad.map(item => item.text));
             } else {
+              setContentItems([]);
               setWords(STARTER_WORDS);
               setUsingStarter(true);
             }
@@ -712,6 +975,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           setCurrentIndex(0);
         }
       } catch (error) {
+        setContentItems([]);
         setUsingStarter(true);
         setWords(STARTER_WORDS);
       } finally {
@@ -759,81 +1023,69 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   const completeAssessment = async () => {
     const level = calculateStudentLevel(assessmentResults);
     setStudentLevel(level);
+    setHighestUnlockedLevel(level);
     setAssessmentPhase('results');
     
     // Save assessment results
     const user = auth.currentUser;
     if (user) {
-      const docId = `${user.uid}_${roomData.roomCode}`;
-      await setDoc(
-        doc(db, "StudentProgress", docId),
-        {
-          userId: user.uid,
-          playerName,
+      try {
+        const { error: saveError } = await supabase.from('student_progress').upsert({
+          id: `${user.id}_${roomData.roomCode}`,
+          user_id: user.id,
+          player_name: playerName,
           name: playerName,
           email: user.email || "",
-          roomCode: roomData.roomCode,
-          roomName: roomData.roomName || "Unknown",
-          teacherId: roomData.teacherId || roomData.createdBy || "",
-          assessmentCompleted: true,
-          studentLevel: level,
-          readerLevel: level,
-          macroLevel: 1,
-          assessmentResults,
-          assessmentDate: new Date(),
-          currentWordIndex: 0,
-          totalWords: 0,
+          room_code: roomData.roomCode,
+          room_name: roomData.roomName || "Unknown",
+          teacher_id: roomData.teacherId || roomData.createdBy || "",
+          assessment_completed: true,
+          student_level: level,
+          reader_level: level,
+          macro_level: 1,
+          assessment_results: assessmentResults,
+          current_word_index: 0,
+          total_words: 0,
           scores: [],
           completed: false,
-          updatedAt: new Date(),
-        },
-        { merge: true }
-      );
+          updated_at: new Date().toISOString(),
+        });
+        if (saveError) throw saveError;
+      } catch (saveError) {
+        console.error('[RegularRoom] Failed to save assessment results:', saveError);
+        throw saveError;
+      }
     }
     
     // Stay in results phase - don't transition immediately
     // User will click continue button to start practice
   };
 
-  // 🔹 Transition to practice content after user clicks continue
-  const startPracticeContent = () => {
+  // 🔹 Transition to practice content after assessment completes
+  const startPracticeContent = async () => {
     setIsContentLoading(true);
     setIsAssessment(false);
-    
-    
-    // Always load content based on Reader Level from our 4-Level system
-    const readerLevelContent = GAME_CONTENT[`reader-level-${studentLevel}`];
-    
-    if (readerLevelContent) {
-      
-      // Start with Macro Level 1, Sub-level 1 (words)
-      const macroLevel1 = readerLevelContent.macroLevels.macroLevel1;
-      
-      const practiceWords = macroLevel1.words.slice(0, 10).map(item => item.content);
-      
-      if (practiceWords.length > 0) {
-        setWords(practiceWords);
+    try {
+      const practiceItems = await loadMacroLevelContent(studentLevel, 1, 'words');
+      if (practiceItems.length > 0) {
+        setContentItems(practiceItems);
+        setWords(practiceItems.map(item => item.text));
         setUsingStarter(false);
-        setCurrentIndex(0);
-        setIsContentLoading(false);
       } else {
-        // Fallback to starter words if no content available
+        setContentItems([]);
         setWords(STARTER_WORDS);
         setUsingStarter(true);
-        setCurrentIndex(0);
-        setIsContentLoading(false);
       }
-    } else {
+      setCurrentIndex(0);
+    } catch (error) {
+      console.error('[RegularRoom] Failed to load practice content:', error);
+      setContentItems([]);
       setWords(STARTER_WORDS);
       setUsingStarter(true);
       setCurrentIndex(0);
+    } finally {
       setIsContentLoading(false);
     }
-    
-    setRecognizedText("");
-    setWordResults([]);
-    setScore(null);
-    setCompleted(false);
   };
 
   // Azure Speech is initialized globally in App.tsx
@@ -841,8 +1093,19 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   // 🔹 Azure Pronunciation Assessment transcription
   const transcribeAudio = async (uri: string): Promise<{ transcript: string; pronScore: number; words: AzureWordResult[] }> => {
     try {
-      const service = getAzureSpeechService();
+      let service;
+      try {
+        service = getAzureSpeechService();
+      } catch (err: any) {
+        console.error('Azure Speech service unavailable:', err.message);
+        throw new Error('Speech assessment service is unavailable. Please check your configuration and try again.');
+      }
+
       const referenceText = currentAssessmentItem?.content || currentWord;
+
+      if (!referenceText) {
+        throw new Error('No reference text available for pronunciation assessment');
+      }
 
       const result = await service.assessPronunciation(uri, referenceText);
 
@@ -852,6 +1115,15 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
 
       return { transcript: result.recognizedText, pronScore: result.pronScore, words: result.words };
     } catch (err: any) {
+      // Distinguish API/network failures from empty-audio results so callers can
+      // show the right message (service error vs. no audio detected).
+      const message: string = err?.message ?? String(err);
+      const isApiError = message.includes('401') || message.includes('403')
+        || message.includes('network') || message.includes('timeout')
+        || message.includes('unavailable');
+      if (isApiError) {
+        throw err; // Re-throw so stopRecognition can show a service-specific alert
+      }
       return { transcript: '', pronScore: 0, words: [] };
     }
   };
@@ -860,6 +1132,11 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   const startRecognition = async () => {
     if (!userId) return Alert.alert("Error", "Login required to record.");
     if (isRecording) return; // ✅ Prevent double-tap
+    // Guard: don't let students record against an empty reference text
+    const referenceText = currentAssessmentItem?.content || currentWord;
+    if (!referenceText.trim()) {
+      return Alert.alert("Content Not Ready", "Please wait for the content to load before recording.");
+    }
     
     try {
       // ✅ Always cleanup any existing recording first
@@ -867,6 +1144,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         try {
           await recordingRef.current.stopAndUnloadAsync();
         } catch (cleanupError) {
+          console.error('[RegularRoom] Failed to clean up previous recording:', cleanupError);
         }
         recordingRef.current = null;
       }
@@ -887,27 +1165,27 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         staysActiveInBackground: false,
       });
 
+      // Use WAV PCM on Android so Azure Speech can decode it (M4A/AAC is rejected)
       const { recording } = await Audio.Recording.createAsync({
         android: {
-          extension: '.m4a',
-          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-          audioEncoder: Audio.AndroidAudioEncoder.AAC,
+          extension: '.wav',
+          outputFormat: Audio.AndroidOutputFormat.DEFAULT,
+          audioEncoder: Audio.AndroidAudioEncoder.DEFAULT,
           sampleRate: 16000,
           numberOfChannels: 1,
           bitRate: 128000,
         },
         ios: {
           extension: '.wav',
-          outputFormat: Audio.IOSOutputFormat.LINEARPCM,
           audioQuality: Audio.IOSAudioQuality.HIGH,
           sampleRate: 16000,
           numberOfChannels: 1,
-          bitRate: 256000,
+          bitRate: 128000,
           linearPCMBitDepth: 16,
           linearPCMIsBigEndian: false,
           linearPCMIsFloat: false,
         },
-        web: { mimeType: 'audio/webm', bitsPerSecond: 128000 },
+        web: {},
       });
       
       recordingRef.current = recording;
@@ -972,7 +1250,28 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           setScore(finalScore);
           setCompleted(true);
           setAttempts(prev => [...prev, finalScore]);
-          
+
+          // Track best score per item (keeps highest ever)
+          if (!isAssessment) {
+            const itemKey = `${currentMacroLevel}-${currentContentType}-${currentIndex}`;
+            setItemBestScores(prev => {
+              const existing = prev[itemKey] ?? 0;
+              if (finalScore <= existing) return prev;
+              const updated = { ...prev, [itemKey]: finalScore };
+              setMacroLevelMap(map => {
+                const rec = map[currentMacroLevel] ?? { status: 'in_progress', bestScore: 0, microBestScores: {} };
+                const allBests = Object.entries(updated)
+                  .filter(([k]) => k.startsWith(`${currentMacroLevel}-`))
+                  .map(([, v]) => v);
+                const avg = allBests.length > 0
+                  ? Math.round(allBests.reduce((a, b) => a + b, 0) / allBests.length)
+                  : rec.bestScore;
+                return { ...map, [currentMacroLevel]: { ...rec, bestScore: Math.max(avg, rec.bestScore) } };
+              });
+              return updated;
+            });
+          }
+
           if (isAssessment) {
             // Handle assessment scoring
             if (currentAssessmentItem) {
@@ -983,11 +1282,11 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
               setAssessmentResults(prev => [...prev, newResult]);
             }
           } else {
-            // Normal room scoringopooop
+            // Normal room scoring
             setScoresArray((prev) => [...prev, finalScore]);
             adjustDifficulty(finalScore);
-            // Save after score is properly set
-            setTimeout(() => saveProgress(), 100);
+            // Pass finalScore directly so saveProgress doesn't read stale state
+            saveProgress(finalScore);
           }
         } else {
           // Handle empty transcript - prompt user to try again instead of accepting 0 score
@@ -1031,103 +1330,113 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   };
 
   // 🔹 Save StudentProgress
-  const saveProgress = async () => {
+  // latestScore: pass the just-computed score to avoid reading stale React state
+  const saveProgress = async (latestScore?: number) => {
     try {
       const user = auth.currentUser;
       if (!user) {
         return;
       }
-      
-      
+
       if (isPersonalRoom) {
-        // Save to student progress collection with personal flag
-        const personalDocId = `${user.uid}_PERSONAL_PRACTICE`;
-        await setDoc(
-          doc(db, "StudentProgress", personalDocId),
-          {
-            playerName,
-            name: playerName,
-            email: user.email || "",
-            userId: user.uid,
-            roomCode: "PERSONAL_PRACTICE",
-            roomName: "Personal Practice Room",
-            currentWordIndex: currentIndex, // Deprecated, keeping for compatibility
-            currentIndex: currentIndex, // Current position within current content type
-            totalWords: words.length,
-            scores: scoresArray, // Current content type scores
-            scoresArray: scoresArray, // Current content type scores array
-            studentLevel,
-            readerLevel: studentLevel, // Alias for consistency
-            lastWord: currentWord || "",
-            completed: currentIndex >= words.length - 1,
-            // Macro level progress state
-            currentMacroLevel,
-            macroLevel: currentMacroLevel, // Alias for consistency
-            currentContentType,
-            macroLevelProgress,
-            showMacroResults, // Save whether macro results should be shown
-            isPersonalPractice: true, // Flag to identify personal practice
-            updatedAt: Timestamp.now(),
-          },
-          { merge: true }
-        );
-        
-        // Also save individual score records for progress tracking
-        await setDoc(
-          doc(db, "StudentResultJoin", `personal_${user.uid}_${Date.now()}`),
-          {
-            email: user.email || "",
-            userId: user.uid,
-            score: score || 0,
-            word: currentWord,
-            isPersonalPractice: true,
-            createdAt: Timestamp.now(),
-          }
-        );
+        const personalDocId = `${user.id}_PERSONAL_PRACTICE`;
+
+        // Build reader level progress map from in-memory snapshots + current state
+        const levelSnapshot = {
+          currentMacroLevel,
+          currentContentType,
+          currentIndex,
+          scoresArray,
+          macroLevelProgress,
+          macroLevelMap,
+          itemBestScores,
+          showMacroResults,
+        };
+        const readerLevelProgress = {
+          ...readerLevelSnapshotsRef.current,
+          [studentLevel]: levelSnapshot,
+        };
+
+        await supabase.from('student_progress').upsert({
+          id: personalDocId,
+          user_id: user.id,
+          player_name: playerName,
+          name: playerName,
+          email: user.email || "",
+          room_code: "PERSONAL_PRACTICE",
+          room_name: "Personal Practice Room",
+          current_word_index: currentIndex,
+          current_index: currentIndex,
+          total_words: words.length,
+          scores: scoresArray,
+          scores_array: scoresArray,
+          student_level: studentLevel,
+          reader_level: studentLevel,
+          last_word: currentWord || "",
+          completed: currentIndex >= words.length - 1,
+          current_macro_level: currentMacroLevel,
+          macro_level: currentMacroLevel,
+          current_content_type: currentContentType,
+          macro_level_progress: macroLevelProgress,
+          macro_level_map: macroLevelMap,
+          item_best_scores: itemBestScores,
+          reader_level_progress: readerLevelProgress,
+          show_macro_results: showMacroResults,
+          is_personal_practice: true,
+          updated_at: new Date().toISOString(),
+        });
+
+        // Save individual score record for progress tracking
+        await supabase.from('student_result_join').insert({
+          id: `personal_${user.id}_${Date.now()}`,
+          user_id: user.id,
+          player_name: playerName,
+          score: latestScore !== undefined ? latestScore : (score || 0),
+          room_code: 'PERSONAL_PRACTICE',
+        });
       } else {
         // Regular room progress saving
-        const docId = `${user.uid}_${roomData.roomCode}`;
-        await setDoc(
-          doc(db, "StudentProgress", docId),
-          {
-            userId: user.uid,
-            playerName,
-            name: playerName,
-            email: user.email || "",
-            roomCode: roomData.roomCode,
-            roomName: roomData.roomName || "Unknown",
-            teacherId: roomData.teacherId || roomData.createdBy || "",
-            currentWordIndex: currentIndex,
-            totalWords: words.length,
-            scores: scoresArray,
-            lastWord: currentWord || "",
-            completed: currentIndex >= words.length - 1,
-            // Macro level progress state
-            currentMacroLevel,
-            currentContentType,
-            macroLevelProgress,
-            showMacroResults, // Save whether macro results should be shown
-            updatedAt: Timestamp.now(),
-          },
-          { merge: true }
-        );
+        await supabase.from('student_progress').upsert({
+          id: `${user.id}_${roomData.roomCode}`,
+          user_id: user.id,
+          player_name: playerName,
+          name: playerName,
+          email: user.email || "",
+          room_code: roomData.roomCode,
+          room_name: roomData.roomName || "Unknown",
+          teacher_id: roomData.teacherId || roomData.createdBy || "",
+          current_word_index: currentIndex,
+          total_words: words.length,
+          scores: scoresArray,
+          last_word: currentWord || "",
+          completed: currentIndex >= words.length - 1,
+          current_macro_level: currentMacroLevel,
+          current_content_type: currentContentType,
+          macro_level_progress: macroLevelProgress,
+          macro_level_map: macroLevelMap,
+          item_best_scores: itemBestScores,
+          show_macro_results: showMacroResults,
+          updated_at: new Date().toISOString(),
+        });
       }
-      
+
     } catch (err) {
-      // Show user-friendly error message
       Alert.alert(
-        "Save Error", 
+        "Save Error",
         "Failed to save your progress. Please check your internet connection and try again."
       );
     }
   };
 
-  // 🔹 Proceed to next word
+  // 🔹 Proceed to next word — requires score >= 70 (allWordsGreen must be true for button to render)
   const handleProceed = async () => {
     // ✅ Reset recording states
     setIsProcessing(false);
     setIsRecording(false);
-    
+
+    // Hard guard: do not advance if pronunciation score is below threshold
+    if (!isAssessment && (score === null || score < 70)) return;
+
     if (isAssessment) {
       // Assessment flow - check if there are more items
       if (currentIndex < ASSESSMENT_ITEMS.length - 1) {
@@ -1140,7 +1449,13 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         setAttempts([]);
       } else {
         // All assessment items completed
-        await completeAssessment();
+        try {
+          await completeAssessment();
+        } catch (err) {
+          Alert.alert("Error", "Failed to save assessment results. Please try again.");
+          setAssessmentPhase('testing');
+          setIsProcessing(false);
+        }
       }
     } else {
       // Normal room flow with macro level progression
@@ -1148,16 +1463,18 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         setCurrentIndex(currentIndex + 1);
         setRecognizedText("");
         setWordResults([]);
+        // Pass the current score explicitly so saveProgress doesn't read stale state
+        const scoreToSave = score ?? 0;
         setScore(null);
         setCompleted(false);
         setAttempts([]);
-        // Save progress when moving to next word
-        setTimeout(() => saveProgress(), 100);
+        saveProgress(scoreToSave);
       } else {
         if (usingStarter) {
           setUsingStarter(false);
           const fallbackWords = roomData.words || (roomData.word ? [roomData.word] : []);
           if (fallbackWords.length > 0) setWords(fallbackWords);
+          setContentItems([]);
           setCurrentIndex(0);
           setRecognizedText("");
           setWordResults([]);
@@ -1167,7 +1484,6 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         } else {
           // Complete current content type and handle macro level progression
           await completeContentType();
-          // Don't call saveProgress here - completeContentType handles its own saving
         }
       }
     }
@@ -1229,17 +1545,22 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     };
   };
 
+  // Words Azure explicitly flagged — errorType is the authoritative signal.
+  // Insertion (extra spoken word) excluded; it doesn't mean a target word was wrong.
+  const mispronounced = completed && score !== null
+    ? wordResults.filter(w => w.errorType === 'Mispronunciation' || w.errorType === 'Omission')
+    : [];
+
   // 🔹 True when every word is rendered green — gates "Next" vs "Try Again"
   const allWordsGreen = completed && score !== null && (() => {
-    if (currentContentType === 'words') {
-      return score >= 70;
-    }
     if (wordResults.length > 0) {
+      // Trust Azure errorType — a word is only "green" when Azure said None
       return wordResults.every(
-        w => w.accuracyScore >= 70 && w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission'
+        w => w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission'
       );
     }
-    // Fallback: positional text comparison
+    // Fallback: no word-level results, use overall score
+    if (currentContentType === 'words') return score >= 70;
     if (!recognizedText || !currentWord) return false;
     const recognized = recognizedText.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w);
     return currentWord.split(/\s+/).filter(w => w).every((word, i) =>
@@ -1249,15 +1570,15 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
 
   // 🔹 Get word color based on recognition result
   const getWordColor = () => {
-    if (!completed || score === null) return COLORS.white;
-    
+    if (!completed || score === null) return '#111827';
+
     if (currentContentType === 'words') {
       // For single words, green if score >= 70%, red otherwise
       return score >= 70 ? '#4CAF50' : '#FF5722';
     }
-    
-    // For sentences/paragraphs, return white (we'll handle per-word coloring differently)
-    return COLORS.white;
+
+    // For sentences/paragraphs, return dark (we'll handle per-word coloring differently)
+    return '#111827';
   };
 
   // 🔹 Speak a word/phrase using TTS
@@ -1319,10 +1640,20 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
 
   return (
     <ScreenLayout>
+        {!isAssessment && (
+          <MacroLevelPanel
+            visible={panelVisible}
+            onClose={() => setPanelVisible(false)}
+            studentLevel={highestUnlockedLevel}
+            activeLevel={studentLevel}
+            onNavigateReaderLevel={navigateToReaderLevel}
+          />
+        )}
+
         {/* Show loading screen while authentication is being restored */}
         {isAuthLoading ? (
           <View style={styles.loadingContainer}>
-            <Ionicons name="hourglass" size={48} color="rgba(255, 255, 255, 0.8)" />
+            <Ionicons name="hourglass" size={48} color="#374151" />
             <Text style={styles.loadingText}>Restoring session...</Text>
           </View>
         ) : (
@@ -1333,7 +1664,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="chevron-back" size={24} color={COLORS.white} />
+            <Ionicons name="chevron-back" size={24} color="#374151" />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
             <Text style={styles.headerTitle}>
@@ -1345,28 +1676,37 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                     : "Pronunciation Assessment"
                 : isPersonalRoom
                   ? "Personal Practice"
-                : usingStarter 
-                  ? "Game Mode" 
-                  : `Room ${roomData.roomName}` || "Pronunciation Room"
+                : roomData?.roomName
+                  ? `Room ${roomData.roomName}`
+                  : "Pronunciation Room"
               }
             </Text>
           </View>
           {!isAssessment && (
-            <TouchableOpacity 
-              style={[
-                styles.readerLevelBadge,
-                { 
-                  backgroundColor: getReaderLevelColor(studentLevel),
-                  borderColor: getReaderLevelColor(studentLevel, true)
-                }
-              ]}
-              onPress={() => setShowStatsModal(true)}
-            >
-              <Ionicons name="library-outline" size={12} color={COLORS.white} style={{ marginRight: 4 }} />
-              <Text style={styles.readerLevelText}>
-                LEVEL {studentLevel}
-              </Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TouchableOpacity
+                style={[
+                  styles.readerLevelBadge,
+                  {
+                    backgroundColor: getReaderLevelColor(studentLevel),
+                    borderColor: getReaderLevelColor(studentLevel, true)
+                  }
+                ]}
+                onPress={() => setShowStatsModal(true)}
+              >
+                <Ionicons name="library-outline" size={12} color={COLORS.white} style={{ marginRight: 4 }} />
+                <Text style={styles.readerLevelText}>
+                  READER LVL {studentLevel}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => setPanelVisible(true)}
+                accessibilityLabel="Open level navigation"
+              >
+                <Ionicons name="menu" size={22} color="#374151" />
+              </TouchableOpacity>
+            </View>
           )}
         </View>
 
@@ -1374,7 +1714,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         {isAssessment && assessmentPhase === 'intro' && (
           <View style={styles.content}>
             <View style={styles.assessmentIntro}>
-              <Ionicons name="school" size={64} color="rgba(255, 255, 255, 0.8)" />
+              <Ionicons name="school" size={64} color={COLORS.primary} />
               <Text style={styles.assessmentTitle}>Pronunciation Assessment</Text>
               <Text style={styles.assessmentDescription}>
                 We'll help you find your pronunciation level by having you read a passage 
@@ -1383,15 +1723,15 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
               
               <View style={styles.assessmentFeatures}>
                 <View style={styles.featureItem}>
-                  <Ionicons name="time" size={20} color={COLORS.white} />
+                  <Ionicons name="time" size={20} color={COLORS.primary} />
                   <Text style={styles.featureText}>Takes 3-5 minutes</Text>
                 </View>
                 <View style={styles.featureItem}>
-                  <Ionicons name="trending-up" size={20} color={COLORS.white} />
+                  <Ionicons name="trending-up" size={20} color={COLORS.primary} />
                   <Text style={styles.featureText}>Determines your level</Text>
                 </View>
                 <View style={styles.featureItem}>
-                  <Ionicons name="checkmark-circle" size={20} color={COLORS.white} />
+                  <Ionicons name="checkmark-circle" size={20} color={COLORS.primary} />
                   <Text style={styles.featureText}>Customizes content</Text>
                 </View>
               </View>
@@ -1647,25 +1987,17 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           </View>
 
           {/* Mispronounced Words Section */}
-          {completed && score !== null && wordResults.filter(w => w.errorType !== 'None' || w.accuracyScore < 70).length > 0 && (
+          {mispronounced.length > 0 && (
             <View style={styles.mispronounedSection}>
               <Text style={styles.mispronounedTitle}>Mispronounced words:</Text>
-              {wordResults
-                .filter(w => w.errorType !== 'None' || w.accuracyScore < 70)
-                .map((w, i) => (
-                  <View key={i} style={styles.mispronounedRow}>
-                    <Text style={styles.mispronounedWordText}>{w.word}</Text>
-                    <TouchableOpacity
-                      onPress={() => speakWord(w.word)}
-                      style={styles.mispronounedAudioBtn}
-                    >
-                      <Ionicons name="volume-high" size={22} color={COLORS.primary} />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              <Text style={styles.mispronounedHint}>
-                Tap the audio icon to hear the correct pronunciation, then try again.
-              </Text>
+              {mispronounced.map((w, i) => (
+                <WordFeedbackCard
+                  key={i}
+                  word={w.word}
+                  phonemes={w.phonemes}
+                  accuracyScore={w.accuracyScore}
+                />
+              ))}
             </View>
           )}
 
@@ -1674,9 +2006,13 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             <View style={styles.resultCard}>
               <View style={styles.resultHeader}>
                 <Text style={styles.resultTitle}>
-                  {score === 0 && !recognizedText 
-                    ? "No audio detected" 
-                    : score >= 70 ? "Great job!" : "Try again"}
+                  {score === 0 && !recognizedText
+                    ? "No audio detected"
+                    : score >= 70 && mispronounced.length === 0
+                      ? "Great job!"
+                      : score >= 70 && mispronounced.length > 0
+                        ? "Good job, but review these words"
+                        : "Try again"}
                 </Text>
               </View>
               
@@ -1708,7 +2044,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                     <Text style={[styles.scoreLabel, { marginBottom: 6 }]}>Attempt History</Text>
                     {attempts.map((s, i) => (
                       <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                        <Text style={{ color: COLORS.white, fontSize: 13, width: 80 }}>
+                        <Text style={{ color: '#374151', fontSize: 13, width: 80 }}>
                           Attempt {i + 1}
                         </Text>
                         <View style={[styles.scoreBar, { flex: 1, height: 8 }]}>
@@ -1721,7 +2057,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                             }
                           ]} />
                         </View>
-                        <Text style={{ color: COLORS.white, fontSize: 13, width: 42, textAlign: 'right' }}>
+                        <Text style={{ color: '#374151', fontSize: 13, width: 42, textAlign: 'right' }}>
                           {s}%{i === attempts.length - 1 && allWordsGreen ? ' ✓' : ''}
                         </Text>
                       </View>
@@ -1732,7 +2068,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             </View>
           ) : (
             <View style={styles.instructionCard}>
-              <Ionicons name="mic-outline" size={48} color="rgba(255, 255, 255, 0.6)" />
+              <Ionicons name="mic-outline" size={48} color="#9CA3AF" />
               <Text style={styles.instructionTitle}>Ready to practice?</Text>
               <Text style={styles.instructionText}>
                 {currentContentType === 'sentences' 
@@ -1755,7 +2091,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
               onPress={() => speakWord(currentWord)}
               activeOpacity={0.75}
             >
-              <Ionicons name="volume-high" size={18} color={COLORS.white} />
+              <Ionicons name="volume-high" size={18} color="#FF5722" />
               <Text style={styles.hearWordText}>Hear correct pronunciation</Text>
             </TouchableOpacity>
           )}
@@ -1963,7 +2299,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    backgroundColor: "#F3F4F6",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1974,12 +2310,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: FONT_SIZES.lg,
     fontWeight: "700",
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('bold'),
   },
   headerSubtitle: {
     fontSize: FONT_SIZES.sm,
-    color: "rgba(255, 255, 255, 0.8)",
+    color: "#6B7280",
     fontFamily: getFontFamily('regular'),
     marginTop: 2,
   },
@@ -2012,18 +2348,18 @@ const styles = StyleSheet.create({
   },
   progressTrack: {
     height: 6,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    backgroundColor: "#E5E7EB",
     borderRadius: 3,
     overflow: "hidden",
   },
   progressFill: {
     height: "100%",
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.primary,
     borderRadius: 3,
   },
   progressText: {
     fontSize: FONT_SIZES.sm,
-    color: "rgba(255, 255, 255, 0.8)",
+    color: "#6B7280",
     fontFamily: getFontFamily('regular'),
     textAlign: "center",
     marginTop: SPACING.sm,
@@ -2039,25 +2375,25 @@ const styles = StyleSheet.create({
   },
   wordLabel: {
     fontSize: FONT_SIZES.base,
-    color: "rgba(255, 255, 255, 0.8)",
+    color: "#6B7280",
     fontFamily: getFontFamily('regular'),
     textAlign: "center",
     marginBottom: SPACING.sm,
   },
   wordCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    backgroundColor: "#F9FAFB",
     borderRadius: 20,
     padding: SPACING.xl,
     alignItems: "center",
     borderWidth: 2,
-    borderColor: "rgba(255, 255, 255, 0.3)",
+    borderColor: "#E5E7EB",
     flexDirection: "row",
     justifyContent: "center",
   },
   word: {
     fontSize: FONT_SIZES['4xl'],
     fontWeight: "700",
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('bold'),
     textAlign: "center",
     marginRight: SPACING.sm,
@@ -2085,7 +2421,7 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
   hearWordText: {
-    color: COLORS.white,
+    color: '#FF5722',
     fontSize: FONT_SIZES.sm,
     fontFamily: getFontFamily('medium'),
   },
@@ -2104,44 +2440,13 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily('semibold'),
     marginBottom: 12,
   },
-  mispronounedRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 10,
-    marginBottom: 8,
-  },
-  mispronounedWordText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#FF5252",
-    fontFamily: getFontFamily('semibold'),
-  },
-  mispronounedAudioBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.white,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  mispronounedHint: {
-    fontSize: 13,
-    color: "rgba(255, 255, 255, 0.7)",
-    fontFamily: getFontFamily('regular'),
-    marginTop: 4,
-    textAlign: "center",
-  },
   resultCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    backgroundColor: "#F9FAFB",
     borderRadius: 16,
     padding: SPACING.lg,
     marginBottom: SPACING.lg,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderColor: "#E5E7EB",
   },
   resultHeader: {
     flexDirection: "row",
@@ -2152,7 +2457,7 @@ const styles = StyleSheet.create({
   resultTitle: {
     fontSize: FONT_SIZES.lg,
     fontWeight: "600",
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('semibold'),
   },
   resultContent: {
@@ -2160,13 +2465,13 @@ const styles = StyleSheet.create({
   },
   resultLabel: {
     fontSize: FONT_SIZES.sm,
-    color: "rgba(255, 255, 255, 0.7)",
+    color: "#6B7280",
     fontFamily: getFontFamily('regular'),
     marginBottom: SPACING.xs,
   },
   resultText: {
     fontSize: FONT_SIZES.lg,
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('semibold'),
     textAlign: "center",
     marginBottom: SPACING.lg,
@@ -2178,14 +2483,14 @@ const styles = StyleSheet.create({
   },
   scoreLabel: {
     fontSize: FONT_SIZES.lg,
-    color: "rgba(255, 255, 255, 0.8)",
+    color: "#6B7280",
     fontFamily: getFontFamily('regular'),
     marginBottom: SPACING.sm,
   },
   scoreBar: {
     width: "100%",
     height: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    backgroundColor: "#E5E7EB",
     borderRadius: 4,
     overflow: "hidden",
     marginBottom: SPACING.sm,
@@ -2197,7 +2502,7 @@ const styles = StyleSheet.create({
   scoreText: {
     fontSize: FONT_SIZES.xl,
     fontFamily: getFontFamily('regular'),
-    color: COLORS.white,
+    color: "#111827",
   },
   nextButton: {
     backgroundColor: COLORS.white,
@@ -2217,18 +2522,18 @@ const styles = StyleSheet.create({
     marginRight: SPACING.xs,
   },
   instructionCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: "#F9FAFB",
     borderRadius: 16,
     padding: SPACING.xl,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderColor: "#E5E7EB",
     marginBottom: SPACING.lg,
   },
   instructionTitle: {
     fontSize: FONT_SIZES.xl,
     fontWeight: "600",
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('semibold'),
     marginTop: SPACING.md,
     marginBottom: SPACING.sm,
@@ -2236,7 +2541,7 @@ const styles = StyleSheet.create({
   },
   instructionText: {
     fontSize: FONT_SIZES.base,
-    color: "rgba(255, 255, 255, 0.8)",
+    color: "#6B7280",
     fontFamily: getFontFamily('regular'),
     textAlign: "center",
     lineHeight: 22,
@@ -2293,7 +2598,7 @@ const styles = StyleSheet.create({
   assessmentTitle: {
     fontSize: FONT_SIZES['3xl'],
     fontWeight: "700",
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('bold'),
     marginTop: SPACING.lg,
     marginBottom: SPACING.md,
@@ -2301,7 +2606,7 @@ const styles = StyleSheet.create({
   },
   assessmentDescription: {
     fontSize: FONT_SIZES.base,
-    color: "rgba(255, 255, 255, 0.9)",
+    color: "#374151",
     fontFamily: getFontFamily('regular'),
     textAlign: "center",
     lineHeight: 24,
@@ -2317,7 +2622,7 @@ const styles = StyleSheet.create({
   },
   featureText: {
     fontSize: FONT_SIZES.base,
-    color: COLORS.white,
+    color: "#374151",
     fontFamily: getFontFamily('regular'),
     marginLeft: SPACING.sm,
   },
@@ -2354,7 +2659,7 @@ const styles = StyleSheet.create({
   resultsTitle: {
     fontSize: FONT_SIZES['3xl'],
     fontWeight: "700",
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('bold'),
     marginTop: SPACING.lg,
     marginBottom: SPACING.sm,
@@ -2363,27 +2668,27 @@ const styles = StyleSheet.create({
   levelText: {
     fontSize: FONT_SIZES['2xl'],
     fontWeight: "600",
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('semibold'),
     marginBottom: SPACING.lg,
     textAlign: "center",
   },
   levelDescription: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     padding: SPACING.md,
     marginBottom: SPACING.lg,
   },
   levelDescText: {
     fontSize: FONT_SIZES.base,
-    color: "rgba(255, 255, 255, 0.9)",
+    color: "#374151",
     fontFamily: getFontFamily('regular'),
     textAlign: "center",
     lineHeight: 22,
   },
   scoreBreakdown: {
     width: "100%",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     padding: SPACING.md,
     marginBottom: SPACING.lg,
@@ -2391,7 +2696,7 @@ const styles = StyleSheet.create({
   breakdownTitle: {
     fontSize: FONT_SIZES.lg,
     fontWeight: "600",
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('semibold'),
     marginBottom: SPACING.sm,
     textAlign: "center",
@@ -2402,18 +2707,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.1)",
+    borderBottomColor: "#E5E7EB",
   },
   scoreWord: {
     fontSize: FONT_SIZES.base,
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('semibold'),
     flex: 2,
     marginRight: SPACING.sm,
   },
   scoreDifficulty: {
     fontSize: FONT_SIZES.sm,
-    color: "rgba(255, 255, 255, 0.7)",
+    color: "#6B7280",
     fontFamily: getFontFamily('regular'),
     flex: 1,
     textAlign: "center",
@@ -2427,22 +2732,22 @@ const styles = StyleSheet.create({
   },
   transitionText: {
     fontSize: FONT_SIZES.sm,
-    color: "rgba(255, 255, 255, 0.7)",
+    color: "#6B7280",
     fontFamily: getFontFamily('regular'),
     textAlign: "center",
     fontStyle: "italic",
   },
   levelHighlight: {
     fontWeight: "800",
-    color: COLORS.white,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
+    color: COLORS.primary,
+    textShadowColor: 'transparent',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 0,
   },
   levelName: {
     fontSize: FONT_SIZES.lg,
     fontWeight: "500",
-    color: "rgba(255, 255, 255, 0.9)",
+    color: "#374151",
     fontFamily: getFontFamily('medium'),
     marginBottom: SPACING.md,
     textAlign: "center",
@@ -2461,18 +2766,18 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.sm,
     marginTop: SPACING.sm,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255, 255, 255, 0.2)",
+    borderTopColor: "#E5E7EB",
   },
   totalScoreLabel: {
     fontSize: FONT_SIZES.lg,
     fontWeight: "600",
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('semibold'),
   },
   totalScoreValue: {
     fontSize: FONT_SIZES.lg,
     fontWeight: "700",
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('bold'),
   },
   continueButton: {
@@ -2536,12 +2841,12 @@ const styles = StyleSheet.create({
   passageTitle: {
     fontSize: FONT_SIZES.lg,
     fontWeight: "700",
-    color: COLORS.white,
+    color: "#111827",
     fontFamily: getFontFamily('bold'),
     textAlign: "center",
     marginBottom: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.3)",
+    borderBottomColor: "#E5E7EB",
     paddingBottom: SPACING.sm,
   },
   passageText: {
@@ -2554,15 +2859,15 @@ const styles = StyleSheet.create({
   },
   // Macro level progress styles
   macroProgressContainer: {
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    backgroundColor: "#F3F4F6",
     borderRadius: 12,
     padding: SPACING.md,
     marginBottom: SPACING.md,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderColor: "#E5E7EB",
   },
   macroProgressText: {
-    color: COLORS.white,
+    color: "#374151",
     fontSize: FONT_SIZES.sm,
     fontWeight: "600",
     fontFamily: getFontFamily('semibold'),
@@ -2584,13 +2889,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 4,
     borderWidth: 2,
-    borderColor: "rgba(255, 255, 255, 0.5)",
+    borderColor: "#D1D5DB",
     alignItems: "center",
   },
   // Colored text styles
   coloredTextContainer: {
     width: "100%",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     padding: SPACING.md,
     marginBottom: SPACING.md,
@@ -2614,10 +2919,10 @@ const styles = StyleSheet.create({
   },
   contentTypeDotPending: {
     backgroundColor: "transparent",
-    borderColor: "rgba(255, 255, 255, 0.3)",
+    borderColor: "#D1D5DB",
   },
   contentTypeDotLabel: {
-    color: COLORS.white,
+    color: "#374151",
     fontSize: 10,
     fontWeight: "500",
     fontFamily: getFontFamily('medium'),
@@ -2630,7 +2935,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.xl,
   },
   loadingText: {
-    color: COLORS.white,
+    color: "#374151",
     fontSize: FONT_SIZES.lg,
     fontWeight: "500",
     fontFamily: getFontFamily('medium'),

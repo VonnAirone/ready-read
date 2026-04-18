@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#EDE9FE',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 40,
@@ -167,14 +167,14 @@ const styles = StyleSheet.create({
   appName: {
     fontSize: FONT_SIZES['4xl'],
     fontFamily: getFontFamily('medium'),
-    color: '#fff',
+    color: '#111827',
     textAlign: 'center',
     marginBottom: 8,
   },
   tagline: {
     fontSize: FONT_SIZES.lg,
     fontFamily: getFontFamily('medium'),
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#6B7280',
     textAlign: 'center',
   },
   loadingContainer: {
@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#fff',
+    backgroundColor: '#8C52FF',
     marginHorizontal: 4,
   },
 });

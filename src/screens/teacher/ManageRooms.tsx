@@ -8,15 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
 } from "react-native";
-import { auth, db } from "../../services/firebase";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  deleteDoc,
-  doc,
-} from "firebase/firestore";
+import { supabase, auth } from "../../services/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { COLORS } from "../../constants/theme";
@@ -32,22 +24,22 @@ export default function ManageRooms() {
     const user = auth.currentUser;
     if (!user) return;
 
-    // ✅ Real-time snapshot
-    const q = query(
-      collection(db, "GenerateRoom"),
-      where("createdBy", "==", user.uid)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedRooms = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      setRooms(fetchedRooms);
+    const loadRooms = async () => {
+      const { data } = await supabase
+        .from('game_rooms')
+        .select('*')
+        .eq('created_by', user.id);
+      setRooms(data ?? []);
       setLoading(false);
-    });
+    };
+    loadRooms();
 
-    return () => unsubscribe();
+    const channel = supabase
+      .channel('manage_rooms_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rooms', filter: `created_by=eq.${user.id}` }, loadRooms)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   const handleDelete = async (roomId: string) => {
@@ -61,7 +53,8 @@ export default function ManageRooms() {
           style: "destructive",
           onPress: async () => {
             try {
-              await deleteDoc(doc(db, "GenerateRoom", roomId));
+              await supabase.from('pronunciation_words').delete().eq('room_id', roomId);
+              await supabase.from('game_rooms').delete().eq('id', roomId);
               Alert.alert("Success", "Room has been deleted successfully.");
             } catch (err) {
               Alert.alert("Error", "Could not delete room. Please try again.");
@@ -80,14 +73,14 @@ export default function ManageRooms() {
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color="white" />
+            <Ionicons name="arrow-back" size={24} color="#374151" />
           </TouchableOpacity>
           <Text style={styles.title}>Manage Rooms</Text>
           <TouchableOpacity
             style={styles.addButton}
             onPress={() => navigation.navigate("RoomGenerator")}
           >
-            <Ionicons name="add" size={24} color="white" />
+            <Ionicons name="add" size={24} color="#374151" />
           </TouchableOpacity>
         </View>
 
@@ -95,13 +88,13 @@ export default function ManageRooms() {
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="white" />
+              <ActivityIndicator size="large" color={COLORS.primary} />
               <Text style={styles.loadingText}>Loading rooms...</Text>
             </View>
           ) : rooms.length === 0 ? (
             <View style={styles.emptyContainer}>
               <View style={styles.emptyIconContainer}>
-                <Ionicons name="home-outline" size={80} color="rgba(255,255,255,0.6)" />
+                <Ionicons name="home-outline" size={80} color="#9CA3AF" />
               </View>
               <Text style={styles.emptyTitle}>No Rooms Created</Text>
               <Text style={styles.emptySubtitle}>
@@ -132,10 +125,10 @@ export default function ManageRooms() {
                         <View style={styles.roomHeaderLeft}>
       
                           <View style={styles.roomTitleContainer}>
-                            <Text style={styles.roomName} numberOfLines={1}>{item.roomName}</Text>
+                            <Text style={styles.roomName} numberOfLines={1}>{item.room_name}</Text>
                             <View style={styles.roomCodeContainer}>
-                              <Ionicons name="key" size={14} color="rgba(255,255,255,0.6)" />
-                              <Text style={styles.roomCode}>{item.roomCode}</Text>
+                              <Ionicons name="key" size={14} color="#9CA3AF" />
+                              <Text style={styles.roomCode}>{item.room_code}</Text>
                             </View>
                           </View>
                         </View>
@@ -155,17 +148,17 @@ export default function ManageRooms() {
                         onPress={() =>
                           navigation.navigate("RoomStudents", {
                             roomId: item.id,
-                            roomName: item.roomName,
-                            roomCode: item.roomCode,
+                            roomName: item.room_name,
+                            roomCode: item.room_code,
                           })
                         }
                         activeOpacity={0.7}
                       >
                         <View style={styles.manageButtonContent}>
-                          <Ionicons name="people" size={20} color="white" />
+                          <Ionicons name="people" size={20} color={COLORS.primary} />
                           <Text style={styles.manageButtonText}>View Students</Text>
                         </View>
-                        <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.7)" />
+                        <Ionicons name="chevron-forward" size={20} color="#6B7280" />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -191,14 +184,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontSize: 20,
     fontFamily: getFontFamily('semibold'),
-    color: 'white',
+    color: '#111827',
     flex: 1,
     textAlign: 'center',
     marginHorizontal: 16,
@@ -207,7 +200,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -218,7 +211,7 @@ const styles = StyleSheet.create({
   roomCount: {
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6B7280',
     marginBottom: 20,
     textAlign: 'center',
   },
@@ -231,7 +224,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: '#E5E7EB',
   },
   roomCardGradient: {
     padding: 20,
@@ -252,11 +245,11 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: '#D1D5DB',
   },
   roomTitleContainer: {
     flex: 1,
@@ -266,7 +259,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#FEF2F2',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -275,14 +268,14 @@ const styles = StyleSheet.create({
   roomName: {
     fontSize: 20,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#111827',
     letterSpacing: 0.5,
   },
   roomCodeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 8,
@@ -291,24 +284,24 @@ const styles = StyleSheet.create({
   roomCode: {
     fontSize: 13,
     fontFamily: getFontFamily('semibold'),
-    color: 'rgba(255,255,255,0.9)',
+    color: '#374151',
     letterSpacing: 1,
   },
   divider: {
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#E5E7EB',
     marginVertical: 16,
   },
   manageButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#F9FAFB',
     borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: '#E5E7EB',
   },
   manageButtonContent: {
     flexDirection: 'row',
@@ -318,7 +311,7 @@ const styles = StyleSheet.create({
   manageButtonText: {
     fontSize: 16,
     fontFamily: getFontFamily('semibold'),
-    color: 'white',
+    color: '#111827',
     letterSpacing: 0.3,
   },
   loadingContainer: {
@@ -330,7 +323,7 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6B7280',
     marginTop: 16,
   },
   emptyContainer: {
@@ -343,7 +336,7 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
@@ -351,14 +344,14 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 24,
     fontFamily: getFontFamily('semibold'),
-    color: 'white',
+    color: '#111827',
     marginBottom: 12,
     textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: 16,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.7)',
+    color: '#6B7280',
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 32,
@@ -366,7 +359,7 @@ const styles = StyleSheet.create({
   },
   createFirstRoomButton: {
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: COLORS.primary,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,

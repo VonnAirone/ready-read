@@ -9,12 +9,19 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { auth, db } from "../../services/firebase";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { supabase } from "../../services/supabase";
 import { getFontFamily } from "../../../styles/fonts";
 import { COLORS } from "../../constants/theme";
 import { ScreenLayout } from "../../components/ScreenLayout";
+
+const getAuthErrorMessage = (message: string): string => {
+  const msg = message.toLowerCase();
+  if (msg.includes('already registered') || msg.includes('already in use')) return 'An account with this email already exists.';
+  if (msg.includes('password') && msg.includes('6')) return 'Password must be at least 6 characters.';
+  if (msg.includes('invalid email')) return 'Please enter a valid email address.';
+  if (msg.includes('network') || msg.includes('fetch')) return 'Network error. Please check your connection and try again.';
+  return 'Something went wrong. Please try again.';
+};
 
 export default function TeacherSignup({ navigation }: any) {
   const [form, setForm] = useState({
@@ -43,28 +50,34 @@ export default function TeacherSignup({ navigation }: any) {
       return;
     }
 
+    if (password.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters.');
+      return;
+    }
+
     setLoading(true);
     try {
-      const userCred = await createUserWithEmailAndPassword(auth, email, password);
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      if (error) throw error;
 
-      await setDoc(doc(db, "teacherAccounts", userCred.user.uid), {
-        uid: userCred.user.uid,
-        name,
-        email,
-        role: "teacher",
-        createdAt: serverTimestamp(),
-      });
+      const user = data.user;
+      if (user) {
+        const { error: insertError } = await supabase.from('teacher_accounts').insert({
+          id: user.id,
+          name,
+          email,
+          role: 'teacher',
+        });
+        if (insertError) throw insertError;
+      }
 
       Alert.alert("Success", "Teacher account created! Please log in.");
-      await auth.signOut();
+      await supabase.auth.signOut();
       setForm({ name: "", email: "", password: "", confirmPassword: "" });
 
-      navigation.reset({
-        index: 0,
-        routes: [{ name: "Login" }],
-      });
+      navigation.reset({ index: 0, routes: [{ name: "Login" }] });
     } catch (err: any) {
-      Alert.alert("Signup Error", err.message);
+      Alert.alert("Signup Error", getAuthErrorMessage(err.message ?? ''));
     } finally {
       setLoading(false);
     }
@@ -187,7 +200,7 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily('regular'),
   },
   label: {
-    fontSize: 18,
+    fontSize: 16,
     color: COLORS.black,
     fontFamily: getFontFamily('regular'),
     marginBottom: 10,
@@ -237,6 +250,7 @@ const styles = StyleSheet.create({
   loginBtn: {
     marginTop: 20,
     alignItems: "center",
+    justifyContent: "center",
   },
   loginText: {
     fontSize: 16,

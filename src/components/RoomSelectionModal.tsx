@@ -11,8 +11,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { db, auth } from "../services/firebase";
-import { collection, getDocs, doc, getDoc, setDoc, query, where } from "firebase/firestore";
+import { supabase, auth } from "../services/supabase";
 import { useNavigation } from "@react-navigation/native";
 import { COLORS, GRADIENTS } from "../constants/theme";
 import { getFontFamily } from "../../styles/fonts";
@@ -43,7 +42,7 @@ export default function ModalRoom({ visible, onClose }: ModalRoomProps) {
   const [joinedRoomCodes, setJoinedRoomCodes] = useState<string[]>([]);
   const navigation = useNavigation<any>();
 
-  // Load user's joined rooms from Firestore
+  // Load user's joined rooms from Supabase
   const loadJoinedRooms = async () => {
     try {
       const user = auth.currentUser;
@@ -51,57 +50,46 @@ export default function ModalRoom({ visible, onClose }: ModalRoomProps) {
 
       const joinedCodes = new Set<string>();
 
-      // Check JoinedRooms collection
-      const userDocRef = doc(db, "JoinedRooms", user.uid);
-      const userDoc = await getDoc(userDocRef);
-      
-      if (userDoc.exists()) {
-        const data = userDoc.data();
-        (data.roomCodes || []).forEach((code: string) => joinedCodes.add(code));
-      }
+      const { data: joinedRow } = await supabase
+        .from('joined_rooms')
+        .select('room_codes')
+        .eq('id', user.id)
+        .single();
+      (joinedRow?.room_codes ?? []).forEach((code: string) => joinedCodes.add(code));
 
-      // Also check StudentProgress collection for rooms with existing progress
-      const progressQuery = query(
-        collection(db, "StudentProgress"),
-        where("userId", "==", user.uid)
-      );
-      const progressSnapshot = await getDocs(progressQuery);
-      
-      progressSnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.roomCode) {
-          joinedCodes.add(data.roomCode);
-        }
-      });
-      
+      const { data: progressRows } = await supabase
+        .from('student_progress')
+        .select('room_code')
+        .eq('user_id', user.id);
+      (progressRows ?? []).forEach(row => { if (row.room_code) joinedCodes.add(row.room_code); });
+
       setJoinedRoomCodes(Array.from(joinedCodes));
     } catch (error) {
       console.error("Failed to load joined rooms:", error);
     }
   };
 
-  // Save joined room to Firestore
+  // Save joined room to Supabase
   const saveJoinedRoom = async (roomCode: string) => {
     try {
       const user = auth.currentUser;
       if (!user) return;
 
-      const userDocRef = doc(db, "JoinedRooms", user.uid);
-      const userDoc = await getDoc(userDocRef);
-      
-      let existingRoomCodes: string[] = [];
-      if (userDoc.exists()) {
-        existingRoomCodes = userDoc.data().roomCodes || [];
-      }
-      
-      // Add room code if not already in the list
+      const { data: existingRow } = await supabase
+        .from('joined_rooms')
+        .select('room_codes')
+        .eq('id', user.id)
+        .single();
+
+      const existingRoomCodes: string[] = existingRow?.room_codes ?? [];
       if (!existingRoomCodes.includes(roomCode)) {
-        existingRoomCodes.push(roomCode);
-        await setDoc(userDocRef, {
-          roomCodes: existingRoomCodes,
-          updatedAt: new Date().toISOString()
+        const updated = [...existingRoomCodes, roomCode];
+        await supabase.from('joined_rooms').upsert({
+          id: user.id,
+          room_codes: updated,
+          updated_at: new Date().toISOString(),
         });
-        setJoinedRoomCodes(existingRoomCodes);
+        setJoinedRoomCodes(updated);
       }
     } catch (error) {
       console.error("Failed to save joined room:", error);
@@ -112,20 +100,16 @@ export default function ModalRoom({ visible, onClose }: ModalRoomProps) {
   const fetchRooms = async () => {
   setLoading(true);
     try {
-      const roomsCollection = collection(db, "GenerateRoom");
-      const roomSnapshot = await getDocs(roomsCollection);
-      
-      const roomList = roomSnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          code: data.roomCode || '',
-          name: data.roomName || '',  
-          teacherId: data.createdBy || '',
-          ...data
-        };
-      }) as Room[];
-      
+      const { data: roomRows } = await supabase.from('game_rooms').select('id, room_code, room_name, created_by');
+      const roomList = (roomRows ?? []).map(r => ({
+        id: r.id,
+        code: r.room_code || '',
+        name: r.room_name || '',
+        teacherId: r.created_by || '',
+        roomCode: r.room_code,
+        roomName: r.room_name,
+        createdBy: r.created_by,
+      })) as Room[];
       setRooms(roomList);
     } catch (error) {
       console.error("Failed to fetch rooms:", error);

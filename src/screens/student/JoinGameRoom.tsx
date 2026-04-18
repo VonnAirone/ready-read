@@ -7,37 +7,230 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  ActivityIndicator,
+  StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
-import { db, auth } from "../../services/firebase";
-import { collection, query, where, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
-import RoomSelectionModal from "../../components/RoomSelectionModal";
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator } from "react-native";
-import { COLORS } from "../../constants/theme";
-import { ScreenLayout } from "../../components/ScreenLayout";
+import { supabase, auth } from "../../services/supabase";
 import { getFontFamily } from "../../../styles/fonts";
 
-interface JoinedRoom {
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface Room {
   id: string;
   code: string;
   name: string;
   teacherId: string;
 }
 
-export default function Join() {
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AVATAR_COLORS = [
+  "#8C52FF",
+  "#10B981",
+  "#F59E0B",
+  "#EF4444",
+  "#3B82F6",
+  "#EC4899",
+];
+
+function avatarColorForName(name: string): string {
+  return AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sub-components
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface RoomAvatarProps {
+  name: string;
+}
+
+function RoomAvatar({ name }: RoomAvatarProps): React.JSX.Element {
+  const letter = name.charAt(0).toUpperCase() || "?";
+  return (
+    <View
+      style={[styles.avatar, { backgroundColor: avatarColorForName(name) }]}
+    >
+      <Text style={styles.avatarLetter}>{letter}</Text>
+    </View>
+  );
+}
+
+interface RecentRoomCardProps {
+  room: Room;
+  onPress: (room: Room) => void;
+}
+
+function RecentRoomCard({
+  room,
+  onPress,
+}: RecentRoomCardProps): React.JSX.Element {
+  return (
+    <TouchableOpacity
+      style={styles.roomCard}
+      onPress={() => onPress(room)}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={`Open room ${room.name}`}
+    >
+      <RoomAvatar name={room.name} />
+      <View style={styles.roomCardBody}>
+        <Text style={styles.roomCardName} numberOfLines={1}>
+          {room.name}
+        </Text>
+        <View style={styles.codeChip}>
+          <Text style={styles.codeChipText}>{room.code}</Text>
+        </View>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+    </TouchableOpacity>
+  );
+}
+
+interface AllRoomCardProps {
+  room: Room;
+  isJoined: boolean;
+  isExpanded: boolean;
+  verifyCode: string;
+  verifying: boolean;
+  onPress: (room: Room) => void;
+  onVerifyCodeChange: (text: string) => void;
+  onVerify: (room: Room) => void;
+  onCancel: () => void;
+}
+
+function AllRoomCard({
+  room,
+  isJoined,
+  isExpanded,
+  verifyCode,
+  verifying,
+  onPress,
+  onVerifyCodeChange,
+  onVerify,
+  onCancel,
+}: AllRoomCardProps): React.JSX.Element {
+  return (
+    <>
+      <TouchableOpacity
+        style={styles.roomCard}
+        onPress={() => onPress(room)}
+        activeOpacity={0.75}
+        accessibilityRole="button"
+        accessibilityLabel={`${room.name}${isJoined ? ", already joined" : ", tap to join"}`}
+      >
+        <RoomAvatar name={room.name} />
+        <View style={styles.roomCardBody}>
+          <View style={styles.roomCardNameRow}>
+            <Text
+              style={[styles.roomCardName, { flexShrink: 1 }]}
+              numberOfLines={1}
+            >
+              {room.name}
+            </Text>
+            {isJoined ? (
+              <View style={styles.joinedBadge}>
+                <Text style={styles.joinedBadgeText}>Joined</Text>
+              </View>
+            ) : (
+              <View style={styles.newBadge}>
+                <Text style={styles.newBadgeText}>New</Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.codeChip}>
+            <Text style={styles.codeChipText}>{room.code}</Text>
+          </View>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+      </TouchableOpacity>
+
+      {isExpanded && (
+        <View style={styles.verifyCard}>
+          <Text style={styles.verifyPrompt}>Enter room code to join</Text>
+          <TextInput
+            style={styles.verifyInput}
+            placeholder="Room code"
+            placeholderTextColor="#D1D5DB"
+            value={verifyCode}
+            onChangeText={onVerifyCodeChange}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={10}
+            accessibilityLabel="Room code input"
+          />
+          <View style={styles.verifyButtonRow}>
+            <TouchableOpacity
+              style={[styles.verifyBtn, styles.cancelBtn]}
+              onPress={onCancel}
+              disabled={verifying}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+            >
+              <Text style={styles.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.verifyBtn, styles.confirmBtn]}
+              onPress={() => onVerify(room)}
+              disabled={verifying}
+              accessibilityRole="button"
+              accessibilityLabel="Verify code"
+            >
+              {verifying ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.confirmBtnText}>Verify</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main screen
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function Join(): React.JSX.Element {
   const navigation = useNavigation<any>();
-  const [roomsVisible, setRoomsVisible] = useState(false);
+
+  // Join-by-code form
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
-  const [recentRooms, setRecentRooms] = useState<JoinedRoom[]>([]);
+
+  // Recently visited
+  const [recentRooms, setRecentRooms] = useState<Room[]>([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
+
+  // All rooms
+  const [allRooms, setAllRooms] = useState<Room[]>([]);
+  const [loadingAll, setLoadingAll] = useState(true);
+
+  // Joined state for the All Rooms section
+  const [joinedRoomCodes, setJoinedRoomCodes] = useState<string[]>([]);
+
+  // Inline verification for All Rooms
+  const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
+  const [verifyCode, setVerifyCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
     loadRecentRooms();
+    loadAllRooms();
   }, []);
 
-  const loadRecentRooms = async () => {
+  // ── Data loaders ────────────────────────────────────────────────────────────
+
+  const loadRecentRooms = async (): Promise<void> => {
     try {
       const user = auth.currentUser;
       if (!user) {
@@ -47,56 +240,70 @@ export default function Join() {
 
       const joinedCodes = new Set<string>();
 
-      // Check JoinedRooms collection
-      const userDocRef = doc(db, "JoinedRooms", user.uid);
-      const userDoc = await getDoc(userDocRef);
-      
-      if (userDoc.exists()) {
-        const data = userDoc.data();
-        (data.roomCodes || []).forEach((code: string) => joinedCodes.add(code));
-      }
+      const { data: joinedRow } = await supabase
+        .from("joined_rooms")
+        .select("room_codes")
+        .eq("id", user.id)
+        .single();
+      (joinedRow?.room_codes ?? []).forEach((c: string) => joinedCodes.add(c));
 
-      // Also check StudentProgress collection
-      const progressQuery = query(
-        collection(db, "StudentProgress"),
-        where("userId", "==", user.uid)
-      );
-      const progressSnapshot = await getDocs(progressQuery);
-      
-      progressSnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.roomCode) {
-          joinedCodes.add(data.roomCode);
-        }
+      const { data: progressRows } = await supabase
+        .from("student_progress")
+        .select("room_code")
+        .eq("user_id", user.id);
+      (progressRows ?? []).forEach((row) => {
+        if (row.room_code) joinedCodes.add(row.room_code);
       });
 
-      // Fetch room details for joined rooms
+      // Populate joinedRoomCodes so the All Rooms section can use it
+      setJoinedRoomCodes(Array.from(joinedCodes));
+
       if (joinedCodes.size > 0) {
-        const roomsQuery = query(
-          collection(db, "GenerateRoom"),
-          where("roomCode", "in", Array.from(joinedCodes).slice(0, 10))
+        const { data: roomRows } = await supabase
+          .from("game_rooms")
+          .select("id, room_code, room_name, created_by")
+          .in("room_code", Array.from(joinedCodes).slice(0, 30));
+
+        setRecentRooms(
+          (roomRows ?? []).map((r) => ({
+            id: r.id,
+            code: r.room_code,
+            name: r.room_name || "Unnamed Room",
+            teacherId: r.created_by || "",
+          }))
         );
-        const roomsSnapshot = await getDocs(roomsQuery);
-        
-        const rooms: JoinedRoom[] = roomsSnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            code: data.roomCode || '',
-            name: data.roomName || 'Unnamed Room',
-            teacherId: data.createdBy || ''
-          };
-        });
-        
-        setRecentRooms(rooms);
       }
     } catch (error) {
+      console.error("JoinGameRoom: failed to load recent rooms", error);
     } finally {
       setLoadingRecent(false);
     }
   };
 
-  const handleRoomPress = (room: JoinedRoom) => {
+  const loadAllRooms = async (): Promise<void> => {
+    try {
+      const { data: roomRows } = await supabase
+        .from("game_rooms")
+        .select("id, room_code, room_name, created_by");
+
+      setAllRooms(
+        (roomRows ?? []).map((r) => ({
+          id: r.id,
+          code: r.room_code || "",
+          name: r.room_name || "Unnamed Room",
+          teacherId: r.created_by || "",
+        }))
+      );
+    } catch (error) {
+      console.error("JoinGameRoom: failed to load all rooms", error);
+    } finally {
+      setLoadingAll(false);
+    }
+  };
+
+  // ── Navigation helpers ───────────────────────────────────────────────────────
+
+  const handleRoomPress = (room: Room): void => {
     navigation.replace("PronunciationRoom", {
       roomData: {
         roomCode: room.code,
@@ -112,343 +319,532 @@ export default function Join() {
     });
   };
 
-  const handleEnter = async () => {
+  const handleEnter = async (): Promise<void> => {
     const trimmedCode = code.trim();
     if (!trimmedCode) return;
 
     try {
-      setLoading(true); // ⏳ start spinner
+      setLoading(true);
 
-      // 1️⃣ Check if room exists in GenerateRoom
-      const genQuery = query(
-        collection(db, "GenerateRoom"),
-        where("roomCode", "==", trimmedCode)
-      );
-      const genSnap = await getDocs(genQuery);
+      const { data: roomRows } = await supabase
+        .from("game_rooms")
+        .select("id, room_code, room_name, created_by")
+        .eq("room_code", trimmedCode);
 
-      if (genSnap.empty) {
+      if (!roomRows || roomRows.length === 0) {
         Alert.alert("Aray ko", "Room code not found.");
         return;
       }
 
-      // Get teacher ID from GenerateRoom
-      const generateRoomData = genSnap.docs[0].data();
-      const teacherId = generateRoomData.createdBy || "";
+      const roomRow = roomRows[0];
+      const teacherId = roomRow.created_by || "";
 
-      // 2️⃣ Check if room has data in PronunciationRoom
-      const dataQuery = query(
-        collection(db, "PronunciationRoom"),
-        where("roomCode", "==", trimmedCode)
-      );
-      const dataSnap = await getDocs(dataQuery);
+      const { data: wordRows } = await supabase
+        .from("pronunciation_words")
+        .select("id, room_code, room_name")
+        .eq("room_code", trimmedCode)
+        .limit(1);
 
-      if (dataSnap.empty) {
+      if (!wordRows || wordRows.length === 0) {
         Alert.alert("Info", "Room has no Data.");
         return;
       }
 
-      // ✅ Room exists and has data
-      const roomDoc = dataSnap.docs[0];
-      const roomData = roomDoc.data();
-
+      const wordRow = wordRows[0];
       navigation.replace("Confirm", {
-        roomcode: roomData.roomCode,
-        roomID: roomDoc.id,
-        roomname: roomData.roomName || "No Name",
-        name: roomData.name || "",
-        playername: roomData.playername || "",
-        email: roomData.email || "",
-        teacherId: teacherId,
+        roomcode: trimmedCode,
+        roomID: wordRow.id,
+        roomname: roomRow.room_name || "No Name",
+        name: "",
+        playername: "",
+        email: "",
+        teacherId,
         createdBy: teacherId,
       });
-    } catch (err) {
+    } catch (_err) {
       Alert.alert("Error", "Something went wrong. Try again.");
     } finally {
-      setLoading(false); // ✅ stop spinner
+      setLoading(false);
     }
   };
 
+  // ── All Rooms verification ──────────────────────────────────────────────────
+
+  const handleAllRoomPress = (room: Room): void => {
+    if (joinedRoomCodes.includes(room.code)) {
+      handleRoomPress(room);
+    } else {
+      setExpandedRoomId(expandedRoomId === room.id ? null : room.id);
+      setVerifyCode("");
+    }
+  };
+
+  const handleVerify = async (room: Room): Promise<void> => {
+    if (verifyCode.trim() !== room.code) {
+      Alert.alert("Invalid Code", "The code you entered is incorrect.");
+      return;
+    }
+
+    setVerifying(true);
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        const { data: existingRow } = await supabase
+          .from("joined_rooms")
+          .select("room_codes")
+          .eq("id", user.id)
+          .single();
+
+        const existing: string[] = existingRow?.room_codes ?? [];
+        if (!existing.includes(room.code)) {
+          await supabase.from("joined_rooms").upsert({
+            id: user.id,
+            room_codes: [...existing, room.code],
+            updated_at: new Date().toISOString(),
+          });
+        }
+        setJoinedRoomCodes((prev) => [...prev, room.code]);
+      }
+    } catch (_) {
+      // Non-fatal — proceed to navigation even if the upsert fails
+    }
+
+    setVerifying(false);
+    setExpandedRoomId(null);
+    navigation.replace("PronunciationRoom", { roomData: room });
+  };
+
+  const handleCancelVerify = (): void => {
+    setExpandedRoomId(null);
+    setVerifyCode("");
+  };
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <ScreenLayout>
-        
-        {/* Header Section */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={15} style={styles.backButtonIcon} />
-            <Text style={styles.backButtonText}>Back</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={styles.roomsButton}
-            onPress={() => setRoomsVisible(true)}
-          >
-            <Ionicons name="list" size={20} color={COLORS.white} />
-            <Text style={styles.roomsButtonText}>Rooms</Text>
-          </TouchableOpacity>
-        </View>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F5F3FF" />
 
-        {/* Main Content */}
-        <ScrollView 
-          style={styles.scrollContent}
-          contentContainerStyle={styles.scrollContentContainer}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.content}>
-            <View style={styles.titleSection}>
-              <Text style={styles.title}>Join a Room</Text>
-            <Text style={styles.subtitle}>
-              Enter the room code provided by your teacher
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* ── Hero Header ───────────────────────────────────────────────── */}
+        <View style={styles.heroHeader}>
+          <View style={styles.heroLeft}>
+            <Text style={styles.heroTitle}>Rooms</Text>
+            <Text style={styles.heroSubtitle}>
+              Find and join your class rooms
             </Text>
           </View>
-
-          <View style={styles.formContainer}>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter Room Code"
-              placeholderTextColor="rgba(140, 82, 255, 0.5)"
-              value={code}
-              onChangeText={setCode}
-              autoCapitalize="characters"
-              maxLength={8}
-            />
-
-            <TouchableOpacity
-              style={[styles.enterButton, loading && styles.buttonDisabled]}
-              onPress={handleEnter}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              {loading ? (
-                <ActivityIndicator color={COLORS.white} />
-              ) : (
-                <>
-                  <Ionicons name="checkmark-circle" size={24} color={COLORS.white} />
-                  <Text style={styles.enterButtonText}>ENTER ROOM</Text>
-                </>
-              )}
-            </TouchableOpacity>
+          <View style={styles.heroIconContainer}>
+            <Ionicons name="headset" size={24} color="#8C52FF" />
           </View>
         </View>
 
-        {/* Recently Joined Rooms Section */}
-          {!loadingRecent && recentRooms.length > 0 && (
-            <View style={styles.recentSection}>
-              <View style={styles.recentHeader}>
-                <Ionicons name="time-outline" size={20} color={COLORS.white} />
-                <Text style={styles.recentTitle}>Recently Joined Rooms</Text>
-              </View>
-              
-              <View style={styles.recentRoomsList}>
-                {recentRooms.map((room) => (
-                  <TouchableOpacity
-                    key={room.id}
-                    style={styles.recentRoomItem}
-                    onPress={() => handleRoomPress(room)}
-                    activeOpacity={0.8}
-                  >
-                    <View style={styles.recentRoomIcon}>
-                      <Ionicons name="bookmark" size={20} color={COLORS.primary} />
-                    </View>
-                    <View style={styles.recentRoomInfo}>
-                      <Text style={styles.recentRoomName}>{room.name}</Text>
-                      <Text style={styles.recentRoomCode}>Code: {room.code}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color="rgba(255, 255, 255, 0.6)" />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          )}
-        </ScrollView>
+        {/* ── Join a Room Card ──────────────────────────────────────────── */}
+        <View style={styles.joinCard}>
+          <View style={styles.sectionLabelRow}>
+            <Ionicons name="add-circle" size={18} color="#8C52FF" />
+            <Text style={styles.sectionLabel}>Join a Room</Text>
+          </View>
+          <Text style={styles.joinSubtitle}>
+            Enter the code from your teacher
+          </Text>
 
-        {/* Room List Modal */}
-        <RoomSelectionModal visible={roomsVisible} onClose={() => setRoomsVisible(false)} />
-        
-    </ScreenLayout>
+          <TextInput
+            style={styles.joinInput}
+            placeholder="e.g. ABC123"
+            placeholderTextColor="#D1D5DB"
+            value={code}
+            onChangeText={setCode}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={10}
+            accessibilityLabel="Room code input"
+          />
+
+          <TouchableOpacity
+            style={[
+              styles.joinButton,
+              (!code.trim() || loading) && styles.joinButtonDisabled,
+            ]}
+            onPress={handleEnter}
+            disabled={!code.trim() || loading}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Join room"
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="enter-outline" size={20} color="#FFFFFF" />
+                <Text style={styles.joinButtonText}>Join Room</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Recently Visited ──────────────────────────────────────────── */}
+        {!loadingRecent && recentRooms.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="time" size={16} color="#8C52FF" />
+              <Text style={styles.sectionTitle}>Recently Visited</Text>
+            </View>
+
+            {recentRooms.map((room) => (
+              <RecentRoomCard
+                key={room.id}
+                room={room}
+                onPress={handleRoomPress}
+              />
+            ))}
+          </View>
+        )}
+
+        {/* ── All Rooms ─────────────────────────────────────────────────── */}
+        <View style={[styles.section, styles.lastSection]}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="grid" size={16} color="#8C52FF" />
+            <Text style={[styles.sectionTitle, { flex: 1 }]}>All Rooms</Text>
+            {!loadingAll && (
+              <View style={styles.countPill}>
+                <Text style={styles.countPillText}>
+                  {allRooms.length} room{allRooms.length !== 1 ? "s" : ""}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {loadingAll ? (
+            <View style={styles.centeredState}>
+              <ActivityIndicator color="#8C52FF" />
+              <Text style={styles.stateText}>Loading rooms...</Text>
+            </View>
+          ) : allRooms.length === 0 ? (
+            <View style={styles.centeredState}>
+              <Text style={styles.stateText}>No rooms available</Text>
+            </View>
+          ) : (
+            allRooms.map((room) => (
+              <AllRoomCard
+                key={room.id}
+                room={room}
+                isJoined={joinedRoomCodes.includes(room.code)}
+                isExpanded={expandedRoomId === room.id}
+                verifyCode={verifyCode}
+                verifying={verifying}
+                onPress={handleAllRoomPress}
+                onVerifyCodeChange={setVerifyCode}
+                onVerify={handleVerify}
+                onCancel={handleCancelVerify}
+              />
+            ))
+          )}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Styles
+// ─────────────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  scrollContent: {
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#F5F3FF",
+  },
+  scroll: {
     flex: 1,
   },
-  scrollContentContainer: {
-    paddingHorizontal: 20,
+  scrollContent: {
     paddingBottom: 40,
   },
-  header: {
+
+  // Hero Header
+  heroHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 20,
     paddingTop: 20,
-    paddingBottom: 20,
+    paddingBottom: 24,
   },
-  backButton: {
+  heroLeft: {
+    flex: 1,
+  },
+  heroTitle: {
+    fontSize: 28,
+    color: "#111827",
+    fontFamily: getFontFamily("bold"),
+    marginBottom: 2,
+  },
+  heroSubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontFamily: getFontFamily("regular"),
+  },
+  heroIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#EDE9FE",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 12,
+  },
+
+  // Join a Room Card
+  joinCard: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 8,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  sectionLabelRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.3)",
+    gap: 6,
   },
-  backButtonIcon: {
-    color: COLORS.white
-  },  
-  backButtonText: {
+  sectionLabel: {
     fontSize: 16,
-    color: COLORS.white,
-    fontFamily: getFontFamily('medium'),
+    color: "#111827",
+    fontFamily: getFontFamily("semibold"),
+    marginLeft: 4,
   },
-  roomsButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+  joinSubtitle: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontFamily: getFontFamily("regular"),
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  joinInput: {
+    width: "100%",
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    fontSize: 18,
+    color: "#8C52FF",
+    textAlign: "center",
+    fontFamily: getFontFamily("semibold"),
+    letterSpacing: 3,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.3)",
+    borderColor: "#E5E7EB",
   },
-  roomsButtonText: {
-    color: COLORS.white,
-    fontSize: 16,
-    fontFamily: getFontFamily('medium'),
-    marginLeft: 8,
-  },
-  recentSection: {
-    marginTop: 10,
-    marginBottom: 20,
-  },
-  recentHeader: {
+  joinButton: {
+    width: "100%",
+    marginTop: 12,
+    backgroundColor: "#8C52FF",
+    borderRadius: 12,
+    paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 15,
+    justifyContent: "center",
     gap: 8,
   },
-  recentTitle: {
-    fontSize: 18,
-    color: COLORS.white,
-    fontFamily: getFontFamily('semibold'),
+  joinButtonDisabled: {
+    opacity: 0.6,
   },
-  recentRoomsList: {
-    gap: 10,
+  joinButtonText: {
+    fontSize: 16,
+    color: "#FFFFFF",
+    fontFamily: getFontFamily("semibold"),
   },
-  recentRoomItem: {
+
+  // Section wrapper
+  section: {
+    marginHorizontal: 20,
+    marginTop: 20,
+  },
+  lastSection: {
+    marginBottom: 32,
+  },
+  sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
+    gap: 6,
+    marginBottom: 12,
   },
-  recentRoomIcon: {
+  sectionTitle: {
+    fontSize: 15,
+    color: "#111827",
+    fontFamily: getFontFamily("semibold"),
+    marginLeft: 2,
+  },
+  countPill: {
+    backgroundColor: "#F3F4F6",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  countPillText: {
+    fontSize: 11,
+    color: "#6B7280",
+    fontFamily: getFontFamily("regular"),
+  },
+
+  // Room card (shared by Recent and All Rooms)
+  roomCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  avatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: COLORS.white,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
   },
-  recentRoomInfo: {
+  avatarLetter: {
+    fontSize: 16,
+    color: "#FFFFFF",
+    fontFamily: getFontFamily("bold"),
+  },
+  roomCardBody: {
     flex: 1,
+    marginLeft: 12,
   },
-  recentRoomName: {
-    fontSize: 16,
-    color: COLORS.white,
-    fontFamily: getFontFamily('semibold'),
+  roomCardNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     marginBottom: 4,
   },
-  recentRoomCode: {
-    fontSize: 13,
-    color: "rgba(255, 255, 255, 0.7)",
-    fontFamily: getFontFamily('regular'),
-  },
-  content: {
-    paddingVertical: 20,
-    alignItems: "center",
-  },
-  titleSection: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  titleIcon: {
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 28,
-    color: COLORS.white,
-    fontFamily: getFontFamily('medium'),
+  roomCardName: {
+    fontSize: 15,
+    color: "#111827",
+    fontFamily: getFontFamily("semibold"),
     marginBottom: 4,
-    textAlign: "center",
   },
-  subtitle: {
-    fontSize: 16,
-    color: "rgba(255, 255, 255, 0.8)",
-    fontFamily: getFontFamily('regular'),
-    textAlign: "center",
-    lineHeight: 22,
+  codeChip: {
+    alignSelf: "flex-start",
+    backgroundColor: "#EDE9FE",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
   },
-  formContainer: {
-    backgroundColor: COLORS.white,
-    borderRadius: 20,
-    padding: 30,
-    width: "100%",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 10,
+  codeChipText: {
+    fontSize: 11,
+    color: "#8C52FF",
+    fontFamily: getFontFamily("semibold"),
   },
-  input: {
-    backgroundColor: "#f8f9fa",
+
+  // Joined / New badges
+  joinedBadge: {
+    backgroundColor: "#D1FAE5",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  joinedBadgeText: {
+    fontSize: 11,
+    color: "#059669",
+    fontFamily: getFontFamily("semibold"),
+  },
+  newBadge: {
+    backgroundColor: "#F3F4F6",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  newBadgeText: {
+    fontSize: 11,
+    color: "#6B7280",
+    fontFamily: getFontFamily("semibold"),
+  },
+
+  // Inline verify card
+  verifyCard: {
+    backgroundColor: "#F5F3FF",
     borderRadius: 12,
     padding: 16,
-    width: "100%",
-    marginBottom: 25,
-    fontSize: 18,
-    color: COLORS.primary,
-    textAlign: "center",
-    fontFamily: getFontFamily('medium'),
-    borderWidth: 2,
-    borderColor: "rgba(140, 82, 255, 0.1)",
-    letterSpacing: 2,
+    marginTop: -4,
+    marginBottom: 10,
   },
-  enterButton: {
-    backgroundColor: COLORS.primary,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    width: "100%",
+  verifyPrompt: {
+    fontSize: 13,
+    color: "#374151",
+    fontFamily: getFontFamily("regular"),
+    marginBottom: 10,
+  },
+  verifyInput: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    color: "#8C52FF",
+    textAlign: "center",
+    fontFamily: getFontFamily("semibold"),
+    letterSpacing: 2,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    marginBottom: 12,
+  },
+  verifyButtonRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  verifyBtn: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
     alignItems: "center",
     justifyContent: "center",
-    flexDirection: "row",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
   },
-  buttonDisabled: {
-    opacity: 0.7,
+  cancelBtn: {
+    backgroundColor: "#F3F4F6",
   },
-  enterButtonText: {
-    color: COLORS.white,
-    fontSize: 18,
-    fontFamily: getFontFamily('medium'),
-    marginLeft: 10,
-    letterSpacing: 1,
+  cancelBtnText: {
+    fontSize: 14,
+    color: "#374151",
+    fontFamily: getFontFamily("semibold"),
+  },
+  confirmBtn: {
+    backgroundColor: "#8C52FF",
+  },
+  confirmBtnText: {
+    fontSize: 14,
+    color: "#FFFFFF",
+    fontFamily: getFontFamily("semibold"),
+  },
+
+  // Loading / empty states
+  centeredState: {
+    alignItems: "center",
+    paddingVertical: 24,
+    gap: 8,
+  },
+  stateText: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontFamily: getFontFamily("regular"),
   },
 });
-

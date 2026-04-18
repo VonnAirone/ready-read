@@ -1,10 +1,10 @@
 // Content Extraction Utility
 // This file will help extract and organize content from PDFs into the game data structure
 
-import { MacroLevelContent, ContentItem } from '../data/gameContent';
+import { ContentItem } from '../types/content';
 
 export interface PDFContentExtractor {
-  extractMacroLevelContent(pdfPath: string, readerLevel: 1 | 2 | 3 | 4): Promise<MacroLevelContent>;
+  extractMacroLevelContent(pdfPath: string, readerLevel: 1 | 2 | 3 | 4): Promise<ContentItem[]>;
 }
 
 // Temporary content processor for organizing content
@@ -27,9 +27,10 @@ export class ContentProcessor {
         if (index < 300) { // 100 main + 200 backup
           items.push({
             id: `r${readerLevel}_m${macroLevel}_w${index + 1}`,
-            content: word.trim(),
-            difficulty: this.calculateDifficulty(word, readerLevel),
-            points: 1,
+            text: word.trim(),
+            type: 'word',
+            difficulty: this.calculateDifficulty(word, readerLevel) as 1|2|3|4|5,
+            basePoints: 1,
             keyWords: [word.toLowerCase()],
             isBackup: index >= 100
           });
@@ -45,9 +46,10 @@ export class ContentProcessor {
           const cleanSentence = sentence.trim();
           items.push({
             id: `r${readerLevel}_m${macroLevel}_s${index + 1}`,
-            content: cleanSentence + '.',
-            difficulty: this.calculateDifficulty(cleanSentence, readerLevel),
-            points: 2,
+            text: cleanSentence + '.',
+            type: 'sentence',
+            difficulty: this.calculateDifficulty(cleanSentence, readerLevel) as 1|2|3|4|5,
+            basePoints: 2,
             keyWords: this.extractKeyWords(cleanSentence),
             isBackup: index >= 100
           });
@@ -63,9 +65,10 @@ export class ContentProcessor {
           const cleanParagraph = paragraph.trim().replace(/\s+/g, ' ');
           items.push({
             id: `r${readerLevel}_m${macroLevel}_p${index + 1}`,
-            content: cleanParagraph,
-            difficulty: this.calculateDifficulty(cleanParagraph, readerLevel),
-            points: 3,
+            text: cleanParagraph,
+            type: 'paragraph',
+            difficulty: this.calculateDifficulty(cleanParagraph, readerLevel) as 1|2|3|4|5,
+            basePoints: 3,
             keyWords: this.extractKeyWords(cleanParagraph),
             isBackup: index >= 100
           });
@@ -165,25 +168,21 @@ export class ContentProcessor {
 // Mock PDF content extractor for now - will be replaced with actual PDF processing
 export class MockPDFExtractor implements PDFContentExtractor {
   
-  async extractMacroLevelContent(pdfPath: string, readerLevel: 1 | 2 | 3 | 4): Promise<MacroLevelContent> {
+  async extractMacroLevelContent(pdfPath: string, readerLevel: 1 | 2 | 3 | 4): Promise<ContentItem[]> {
     // This is a placeholder - in real implementation, you would:
     // 1. Read the PDF file using a PDF library
     // 2. Extract text content
     // 3. Parse and organize content by type (words, sentences, paragraphs)
     
-    
     // Mock extracted content based on reader level
     const sampleContent = this.generateSampleContent(readerLevel);
-    const macroLevelInfo = ContentProcessor.getMacroLevelInfo(readerLevel, readerLevel); // Using readerLevel as macroLevel for demo
     
-    return {
-      level: readerLevel,
-      name: macroLevelInfo.name,
-      description: macroLevelInfo.description,
-      words: ContentProcessor.processTextToItems(sampleContent.words, 'words', readerLevel, readerLevel),
-      sentences: ContentProcessor.processTextToItems(sampleContent.sentences, 'sentences', readerLevel, readerLevel),
-      paragraphs: ContentProcessor.processTextToItems(sampleContent.paragraphs, 'paragraphs', readerLevel, readerLevel)
-    };
+    // Combine all content items
+    const words = ContentProcessor.processTextToItems(sampleContent.words, 'words', 1, readerLevel);
+    const sentences = ContentProcessor.processTextToItems(sampleContent.sentences, 'sentences', 1, readerLevel);
+    const paragraphs = ContentProcessor.processTextToItems(sampleContent.paragraphs, 'paragraphs', 1, readerLevel);
+    
+    return [...words, ...sentences, ...paragraphs];
   }
 
   private generateSampleContent(readerLevel: 1 | 2 | 3 | 4) {

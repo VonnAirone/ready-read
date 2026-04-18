@@ -10,15 +10,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { auth, db } from '../../services/firebase';
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  doc, 
-  getDoc 
-} from 'firebase/firestore';
+import { supabase, auth } from '../../services/supabase';
 import { COLORS } from '../../constants/theme';
 import { ScreenLayout } from '../../components/ScreenLayout';
 import { getFontFamily } from '../../../styles/fonts';
@@ -65,59 +57,42 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
       const user = auth.currentUser;
       if (!user) return;
 
-      // Get teacher info
-      const teacherDoc = await getDoc(doc(db, 'teacherAccounts', user.uid));
-      if (teacherDoc.exists()) {
-        setTeacherName(teacherDoc.data().name || 'Teacher');
-      }
+      const { data: teacherRow } = await supabase
+        .from('teacher_accounts')
+        .select('name')
+        .eq('id', user.id)
+        .single();
+      if (teacherRow) setTeacherName(teacherRow.name || 'Teacher');
 
-      // Get teacher's rooms
-      const roomsQuery = query(
-        collection(db, 'GenerateRoom'),
-        where('createdBy', '==', user.uid)
-      );
-      const roomsSnapshot = await getDocs(roomsQuery);
-      const totalRooms = roomsSnapshot.size;
+      const { data: rooms } = await supabase
+        .from('game_rooms')
+        .select('id')
+        .eq('created_by', user.id);
+      const totalRooms = rooms?.length ?? 0;
 
-      // Get student progress data
-      const progressQuery = query(
-        collection(db, 'StudentProgress'),
-        where('teacherId', '==', user.uid)
-      );
-      const progressSnapshot = await getDocs(progressQuery);
-      
-      const uniqueStudents = new Set();
+      const { data: progressRows } = await supabase
+        .from('student_progress')
+        .select('email, assessment_completed, scores')
+        .eq('teacher_id', user.id);
+
+      const uniqueStudents = new Set<string>();
       let completedAssessments = 0;
       let totalScores = 0;
       let scoreCount = 0;
 
-      progressSnapshot.forEach((doc) => {
-        const data = doc.data();
-        uniqueStudents.add(data.email);
-        if (data.assessmentCompleted) {
-          completedAssessments++;
-        }
-        if (data.scores && Array.isArray(data.scores)) {
-          data.scores.forEach((score: number) => {
-            totalScores += score;
-            scoreCount++;
-          });
+      (progressRows ?? []).forEach((row) => {
+        if (row.email) uniqueStudents.add(row.email);
+        if (row.assessment_completed) completedAssessments++;
+        if (Array.isArray(row.scores)) {
+          row.scores.forEach((s: number) => { totalScores += s; scoreCount++; });
         }
       });
 
       const avgScore = scoreCount > 0 ? Math.round(totalScores / scoreCount) : 0;
-
-      setStats({
-        totalRooms,
-        activeStudents: uniqueStudents.size,
-        completedAssessments,
-        avgScore,
-      });
-
-      // No recent activity data - will show empty state
+      setStats({ totalRooms, activeStudents: uniqueStudents.size, completedAssessments, avgScore });
       setRecentActivity([]);
-
     } catch (error) {
+      console.error('TeacherDashboard: failed to load stats', error);
     } finally {
       setLoading(false);
     }
@@ -198,7 +173,7 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
             <Text style={styles.teacherName}>{teacherName}</Text>
           </View>
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={24} color="white" />
+            <Ionicons name="log-out-outline" size={24} color="#6B7280" />
           </TouchableOpacity>
         </View>
 
@@ -251,7 +226,7 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
           <View style={styles.activityContainer}>
             {recentActivity.length === 0 ? (
               <View style={styles.noActivityContainer}>
-                <Ionicons name="time-outline" size={48} color="rgba(255,255,255,0.5)" />
+                <Ionicons name="time-outline" size={48} color="#D1D5DB" />
                 <Text style={styles.noActivityText}>No recent activity</Text>
                 <Text style={styles.noActivitySubtext}>Activity will appear here as students join and practice</Text>
               </View>
@@ -294,16 +269,18 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 16,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#9CA3AF',
     marginBottom: 4,
   },
   teacherName: {
     fontSize: 24,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#111827',
   },
   logoutButton: {
     padding: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   content: {
     flex: 1,
@@ -312,7 +289,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontFamily: getFontFamily('semibold'),
-    color: 'white',
+    color: '#111827',
     marginBottom: 16,
     marginTop: 8,
   },
@@ -323,13 +300,15 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   statCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: '#F9FAFB',
     borderRadius: 16,
     padding: 16,
     alignItems: 'center',
     width: (width - 60) / 2,
     minHeight: 120,
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   statIcon: {
     width: 48,
@@ -342,13 +321,13 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 24,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#111827',
     marginBottom: 4,
   },
   statTitle: {
     fontSize: 14,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#6B7280',
     textAlign: 'center',
   },
   actionsContainer: {
@@ -376,23 +355,25 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   activityContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#F9FAFB',
     borderRadius: 16,
     padding: 16,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   activityItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: '#E5E7EB',
   },
   activityIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#EDE9FE',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -403,18 +384,18 @@ const styles = StyleSheet.create({
   activityTitle: {
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: 'white',
+    color: '#111827',
     marginBottom: 2,
   },
   activitySubtitle: {
     fontSize: 14,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: '#6B7280',
   },
   activityTime: {
     fontSize: 12,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: '#9CA3AF',
   },
   noActivityContainer: {
     alignItems: 'center',
@@ -424,14 +405,14 @@ const styles = StyleSheet.create({
   noActivityText: {
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: '#6B7280',
     marginTop: 12,
     textAlign: 'center',
   },
   noActivitySubtext: {
     fontSize: 14,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#9CA3AF',
     marginTop: 4,
     textAlign: 'center',
     paddingHorizontal: 20,

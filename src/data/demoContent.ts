@@ -2,7 +2,6 @@
 // This file demonstrates how to populate the game content from the PDF files
 // Place your extracted PDF content here organized by Reader Level and Macro Level
 
-import { GAME_CONTENT } from './gameContent';
 import { ContentProcessor } from '../utils/contentExtractor';
 
 // Sample content extracted from "Macro Level 1-4 - Content Compilation" PDFs
@@ -34,37 +33,9 @@ const READER_LEVEL_2_CONTENT = {
 // Function to populate the game content with extracted PDF data
 export function populateGameContent() {
   try {
-    // Process Reader Level 1 content
-    const r1m1 = ContentProcessor.processTextToItems(READER_LEVEL_1_CONTENT.macroLevel1.words, 'words', 1, 1);
-    const r1m1_sentences = ContentProcessor.processTextToItems(READER_LEVEL_1_CONTENT.macroLevel1.sentences, 'sentences', 1, 1);
-    const r1m1_paragraphs = ContentProcessor.processTextToItems(READER_LEVEL_1_CONTENT.macroLevel1.paragraphs, 'paragraphs', 1, 1);
-    
-    // Update the game content
-    GAME_CONTENT['reader-level-1'].macroLevels.macroLevel1.words = r1m1;
-    GAME_CONTENT['reader-level-1'].macroLevels.macroLevel1.sentences = r1m1_sentences;
-    GAME_CONTENT['reader-level-1'].macroLevels.macroLevel1.paragraphs = r1m1_paragraphs;
-
-    // Process Reader Level 1, Macro Level 2
-    const r1m2 = ContentProcessor.processTextToItems(READER_LEVEL_1_CONTENT.macroLevel2.words, 'words', 2, 1);
-    const r1m2_sentences = ContentProcessor.processTextToItems(READER_LEVEL_1_CONTENT.macroLevel2.sentences, 'sentences', 2, 1);
-    const r1m2_paragraphs = ContentProcessor.processTextToItems(READER_LEVEL_1_CONTENT.macroLevel2.paragraphs, 'paragraphs', 2, 1);
-    
-    GAME_CONTENT['reader-level-1'].macroLevels.macroLevel2.words = r1m2;
-    GAME_CONTENT['reader-level-1'].macroLevels.macroLevel2.sentences = r1m2_sentences;
-    GAME_CONTENT['reader-level-1'].macroLevels.macroLevel2.paragraphs = r1m2_paragraphs;
-
-    // Process Reader Level 2 content
-    const r2m1 = ContentProcessor.processTextToItems(READER_LEVEL_2_CONTENT.macroLevel1.words, 'words', 1, 2);
-    const r2m1_sentences = ContentProcessor.processTextToItems(READER_LEVEL_2_CONTENT.macroLevel1.sentences, 'sentences', 1, 2);
-    const r2m1_paragraphs = ContentProcessor.processTextToItems(READER_LEVEL_2_CONTENT.macroLevel1.paragraphs, 'paragraphs', 1, 2);
-    
-    GAME_CONTENT['reader-level-2'].macroLevels.macroLevel1.words = r2m1;
-    GAME_CONTENT['reader-level-2'].macroLevels.macroLevel1.sentences = r2m1_sentences;
-    GAME_CONTENT['reader-level-2'].macroLevels.macroLevel1.paragraphs = r2m1_paragraphs;
-
-    
-    // Log sample content for verification
-    
+    // Content is now loaded from public/gameContent.json at runtime
+    // This function is kept for backward compatibility
+    // It can be used to validate content structure or perform migrations if needed
     return true;
   } catch (error) {
     return false;

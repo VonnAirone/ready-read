@@ -8,13 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { auth, db } from '../../services/firebase';
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs,
-} from 'firebase/firestore';
+import { supabase, auth } from '../../services/supabase';
 import { COLORS } from '../../constants/theme';
 import { ScreenLayout } from '../../components/ScreenLayout';
 import { getFontFamily } from '../../../styles/fonts';
@@ -53,88 +47,53 @@ export default function AssessmentResults({ navigation }: AssessmentResultsProps
       const user = auth.currentUser;
       if (!user) return;
 
-      const assessmentsList: AssessmentData[] = [];
+      const { data: rooms } = await supabase
+        .from('game_rooms')
+        .select('room_code, room_name')
+        .eq('created_by', user.id);
 
-      // Get all rooms created by this teacher
-      const roomsQuery = query(
-        collection(db, 'GenerateRoom'),
-        where('createdBy', '==', user.uid)
-      );
-      const roomsSnapshot = await getDocs(roomsQuery);
-      const teacherRooms = new Map();
-      
-      roomsSnapshot.forEach((doc) => {
-        const data = doc.data();
-        teacherRooms.set(data.roomCode, {
-          roomName: data.roomName,
-          roomCode: data.roomCode,
-        });
-      });
+      const teacherRooms = new Map<string, { roomName: string; roomCode: string }>();
+      (rooms ?? []).forEach(r => teacherRooms.set(r.room_code, { roomName: r.room_name, roomCode: r.room_code }));
 
-      // Get student progress data with completed assessments
-      const progressQuery = query(
-        collection(db, 'StudentProgress'),
-        where('teacherId', '==', user.uid),
-        where('assessmentCompleted', '==', true)
-      );
-      const progressSnapshot = await getDocs(progressQuery);
+      const { data: progressRows } = await supabase
+        .from('student_progress')
+        .select('*')
+        .eq('teacher_id', user.id)
+        .eq('assessment_completed', true);
 
       let totalScore = 0;
       let highestScore = 0;
       let lowestScore = 100;
 
-      progressSnapshot.forEach((progressDoc) => {
-        const progressData = progressDoc.data();
-        
-        // Calculate assessment score from assessment results
+      const assessmentsList: AssessmentData[] = (progressRows ?? []).map(row => {
         let assessmentScore = 0;
-        if (progressData.assessmentResults && Array.isArray(progressData.assessmentResults)) {
-          const totalPoints = progressData.assessmentResults.reduce(
-            (sum: number, item: any) => sum + (item.score || 0), 
-            0
-          );
-          assessmentScore = progressData.assessmentResults.length > 0 
-            ? Math.round(totalPoints / progressData.assessmentResults.length)
-            : 0;
+        if (Array.isArray(row.assessment_results)) {
+          const totalPoints = row.assessment_results.reduce((sum: number, item: any) => sum + (item.score || 0), 0);
+          assessmentScore = row.assessment_results.length > 0 ? Math.round(totalPoints / row.assessment_results.length) : 0;
         }
-
         totalScore += assessmentScore;
         highestScore = Math.max(highestScore, assessmentScore);
         lowestScore = Math.min(lowestScore, assessmentScore);
 
-        const roomInfo = teacherRooms.get(progressData.roomCode) || {
-          roomName: 'Unknown Room',
-          roomCode: progressData.roomCode || 'N/A',
-        };
-
-        assessmentsList.push({
-          id: progressDoc.id,
-          name: progressData.playerName || progressData.name || 'Unknown Player',
-          email: progressData.email || 'No email',
+        const roomInfo = teacherRooms.get(row.room_code) || { roomName: 'Unknown Room', roomCode: row.room_code || 'N/A' };
+        return {
+          id: row.id,
+          name: row.player_name || row.name || 'Unknown Player',
+          email: row.email || 'No email',
           roomName: roomInfo.roomName,
           roomCode: roomInfo.roomCode,
           assessmentScore,
-          readerLevel: progressData.readerLevel || progressData.studentLevel || 0,
-          assessmentDate: progressData.assessmentDate?.toDate() || progressData.updatedAt?.toDate() || new Date(),
-        });
+          readerLevel: row.reader_level || row.student_level || 0,
+          assessmentDate: row.updated_at ? new Date(row.updated_at) : new Date(),
+        };
       });
 
-      // Sort by assessment score (highest first)
       assessmentsList.sort((a, b) => b.assessmentScore - a.assessmentScore);
-
-      const averageScore = assessmentsList.length > 0 
-        ? Math.round(totalScore / assessmentsList.length) 
-        : 0;
-
-      setStats({
-        totalAssessments: assessmentsList.length,
-        averageScore,
-        highestScore: assessmentsList.length > 0 ? highestScore : 0,
-        lowestScore: assessmentsList.length > 0 ? lowestScore : 0,
-      });
-
+      const averageScore = assessmentsList.length > 0 ? Math.round(totalScore / assessmentsList.length) : 0;
+      setStats({ totalAssessments: assessmentsList.length, averageScore, highestScore: assessmentsList.length > 0 ? highestScore : 0, lowestScore: assessmentsList.length > 0 ? lowestScore : 0 });
       setAssessments(assessmentsList);
     } catch (error) {
+      console.error('AssessmentResults: failed to load results', error);
     } finally {
       setLoading(false);
     }
@@ -170,7 +129,7 @@ export default function AssessmentResults({ navigation }: AssessmentResultsProps
     return (
       <ScreenLayout>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="white" />
+          <ActivityIndicator size="large" color={COLORS.primary} />
           <Text style={styles.loadingText}>Loading assessments...</Text>
         </View>
       </ScreenLayout>
@@ -185,7 +144,7 @@ export default function AssessmentResults({ navigation }: AssessmentResultsProps
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color="white" />
+            <Ionicons name="arrow-back" size={24} color="#374151" />
           </TouchableOpacity>
           <Text style={styles.title}>Assessment Results</Text>
           <View style={styles.headerRight}>
@@ -229,7 +188,7 @@ export default function AssessmentResults({ navigation }: AssessmentResultsProps
 
             {assessments.length === 0 ? (
               <View style={styles.noDataRow}>
-                <Ionicons name="clipboard-outline" size={60} color="rgba(255,255,255,0.3)" />
+                <Ionicons name="clipboard-outline" size={60} color="#D1D5DB" />
                 <Text style={styles.noDataText}>No completed assessments yet</Text>
                 <Text style={styles.noDataSubtext}>
                   Students will appear here once they complete their assessments
@@ -287,21 +246,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
     paddingTop: 20,
+    paddingBottom: 16,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontSize: 20,
     fontFamily: getFontFamily('semibold'),
-    color: 'white',
+    color: '#111827',
     flex: 1,
     textAlign: 'center',
     marginHorizontal: 16,
@@ -313,8 +272,8 @@ const styles = StyleSheet.create({
   studentCount: {
     fontSize: 16,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    color: '#111827',
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -332,7 +291,7 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#F3F4F6',
     borderRadius: 16,
     padding: 16,
     alignItems: 'center',
@@ -341,15 +300,15 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 20,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#111827',
   },
   statLabel: {
     fontSize: 12,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6B7280',
   },
   tableContainer: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#F9FAFB',
     borderRadius: 16,
     overflow: 'hidden',
     marginHorizontal: 20,
@@ -357,7 +316,7 @@ const styles = StyleSheet.create({
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F3F4F6',
     paddingVertical: 16,
     paddingHorizontal: 16,
   },
@@ -365,7 +324,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     fontFamily: getFontFamily('semibold'),
-    color: 'white',
+    color: '#111827',
     textAlign: 'center',
   },
   tableBody: {
@@ -375,7 +334,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingVertical: 16,
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
   },
   nameCell: {
@@ -388,14 +347,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   rankText: {
     fontSize: 12,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#374151',
   },
   studentDetails: {
     flex: 1,
@@ -403,12 +362,12 @@ const styles = StyleSheet.create({
   studentNameTable: {
     fontSize: 14,
     fontFamily: getFontFamily('medium'),
-    color: 'white',
+    color: '#111827',
   },
   roomNameSmall: {
     fontSize: 11,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.6)',
+    color: '#9CA3AF',
     marginTop: 2,
   },
   scoreCell: {
@@ -450,25 +409,25 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: 12,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6B7280',
   },
   noDataRow: {
     paddingVertical: 60,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: '#F9FAFB',
     gap: 12,
   },
   noDataText: {
     fontSize: 16,
     fontFamily: getFontFamily('semibold'),
-    color: 'rgba(255,255,255,0.9)',
+    color: '#374151',
     textAlign: 'center',
   },
   noDataSubtext: {
     fontSize: 14,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.6)',
+    color: '#9CA3AF',
     textAlign: 'center',
     paddingHorizontal: 40,
   },
@@ -480,7 +439,7 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: 'white',
+    color: '#374151',
     marginTop: 16,
   },
 });

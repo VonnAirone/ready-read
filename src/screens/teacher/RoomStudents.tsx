@@ -9,13 +9,7 @@ import {
   Modal,
   ScrollView,
 } from "react-native";
-import { db } from "../../services/firebase";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-} from "firebase/firestore";
+import { supabase } from "../../services/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { COLORS } from "../../constants/theme";
@@ -47,41 +41,40 @@ export default function RoomStudents() {
   useEffect(() => {
     if (!roomCode) return;
 
-    // Query StudentProgress collection for students in this room
-    const q = query(
-      collection(db, "StudentProgress"),
-      where("roomCode", "==", roomCode)
-    );
+    const loadStudents = async () => {
+      const { data: rows } = await supabase
+        .from('student_progress')
+        .select('*')
+        .eq('room_code', roomCode);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedStudents = snapshot.docs.map((docSnap) => {
-        const data = docSnap.data();
-        return {
-          id: docSnap.id,
-          playerName: data.playerName || "Unknown Player",
-          email: data.email || "No email",
-          readerLevel: data.readerLevel || 1,
-          macroLevel: data.macroLevel || 1,
-          userId: data.userId || "",
-          joinedAt: data.joinedAt || null,
-          macroLevelProgress: data.macroLevelProgress || {},
-          scores: data.scores || [],
-        };
-      });
-      
-      // Sort by reader level (highest first), then by macro level
+      const fetchedStudents = (rows ?? []).map((row) => ({
+        id: row.id,
+        playerName: row.player_name || "Unknown Player",
+        email: row.email || "No email",
+        readerLevel: row.reader_level || 1,
+        macroLevel: row.macro_level || 1,
+        userId: row.user_id || "",
+        joinedAt: row.joined_at || null,
+        macroLevelProgress: row.macro_level_progress || {},
+        scores: row.scores || [],
+      }));
+
       fetchedStudents.sort((a, b) => {
-        if (b.readerLevel !== a.readerLevel) {
-          return b.readerLevel - a.readerLevel;
-        }
+        if (b.readerLevel !== a.readerLevel) return b.readerLevel - a.readerLevel;
         return b.macroLevel - a.macroLevel;
       });
 
       setStudents(fetchedStudents);
       setLoading(false);
-    });
+    };
+    loadStudents();
 
-    return () => unsubscribe();
+    const channel = supabase
+      .channel('room_students_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_progress', filter: `room_code=eq.${roomCode}` }, loadStudents)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [roomCode]);
 
   const getReaderLevelLabel = (level: number) => {
@@ -123,7 +116,7 @@ export default function RoomStudents() {
                 </Text>
               </View>
               <View style={styles.macroLevelBadge}>
-                <Ionicons name="layers" size={14} color="rgba(255,255,255,0.8)" />
+                <Ionicons name="layers" size={14} color="#6B7280" />
                 <Text style={styles.macroLevelText}>
                   {getMacroLevelLabel(item.macroLevel)}
                 </Text>
@@ -137,7 +130,7 @@ export default function RoomStudents() {
               setShowDiagnosticModal(true);
             }}
           >
-            <Ionicons name="eye-outline" size={20} color="white" />
+            <Ionicons name="eye-outline" size={20} color={COLORS.primary} />
           </TouchableOpacity>
         </View>
       </View>
@@ -152,7 +145,7 @@ export default function RoomStudents() {
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color="white" />
+            <Ionicons name="arrow-back" size={24} color="#374151" />
           </TouchableOpacity>
           <View style={styles.headerTitleContainer}>
             <Text style={styles.title}>Students in Room</Text>
@@ -164,11 +157,11 @@ export default function RoomStudents() {
         {/* Room Info */}
         <View style={styles.roomInfoCard}>
           <View style={styles.roomInfoItem}>
-            <Ionicons name="key" size={20} color="rgba(255,255,255,0.7)" />
+            <Ionicons name="key" size={20} color="#6B7280" />
             <Text style={styles.roomInfoText}>Code: {roomCode}</Text>
           </View>
           <View style={styles.roomInfoItem}>
-            <Ionicons name="people" size={20} color="rgba(255,255,255,0.7)" />
+            <Ionicons name="people" size={20} color="#6B7280" />
             <Text style={styles.roomInfoText}>
               {students.length} Student{students.length !== 1 ? 's' : ''}
             </Text>
@@ -178,13 +171,13 @@ export default function RoomStudents() {
         {/* Students List */}
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="white" />
+            <ActivityIndicator size="large" color={COLORS.primary} />
             <Text style={styles.loadingText}>Loading students...</Text>
           </View>
         ) : students.length === 0 ? (
           <View style={styles.emptyContainer}>
             <View style={styles.emptyIconContainer}>
-              <Ionicons name="people-outline" size={80} color="rgba(255,255,255,0.6)" />
+              <Ionicons name="people-outline" size={80} color="#9CA3AF" />
             </View>
             <Text style={styles.emptyTitle}>No Students Yet</Text>
             <Text style={styles.emptySubtitle}>
@@ -367,14 +360,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
     paddingTop: 20,
+    paddingBottom: 16,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -386,12 +379,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#111827',
   },
   subtitle: {
     fontSize: 14,
     fontFamily: getFontFamily('medium'),
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6B7280',
     marginTop: 4,
   },
   placeholder: {
@@ -402,11 +395,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     marginHorizontal: 20,
     marginBottom: 20,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#F9FAFB',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: '#E5E7EB',
   },
   roomInfoItem: {
     flexDirection: 'row',
@@ -416,7 +409,7 @@ const styles = StyleSheet.create({
   roomInfoText: {
     fontSize: 14,
     fontFamily: getFontFamily('semibold'),
-    color: 'rgba(255,255,255,0.9)',
+    color: '#374151',
   },
   listContent: {
     paddingHorizontal: 20,
@@ -427,7 +420,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: '#E5E7EB',
   },
   studentCardGradient: {
     padding: 16,
@@ -443,26 +436,26 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#EDE9FE',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: '#DDD6FE',
   },
   rankContainer: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: '#E5E7EB',
   },
   rankNumber: {
     fontSize: 18,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#374151',
   },
   studentInfo: {
     flex: 1,
@@ -471,7 +464,7 @@ const styles = StyleSheet.create({
   studentName: {
     fontSize: 18,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#111827',
     letterSpacing: 0.3,
   },
   levelContainer: {
@@ -498,13 +491,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#F3F4F6',
     gap: 6,
   },
   macroLevelText: {
     fontSize: 12,
     fontFamily: getFontFamily('semibold'),
-    color: 'rgba(255,255,255,0.9)',
+    color: '#374151',
   },
   loadingContainer: {
     flex: 1,
@@ -515,7 +508,7 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6B7280',
   },
   emptyContainer: {
     flex: 1,
@@ -527,7 +520,7 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
@@ -535,14 +528,14 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 24,
     fontFamily: getFontFamily('bold'),
-    color: 'white',
+    color: '#111827',
     marginBottom: 12,
     textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: 16,
     fontFamily: getFontFamily('regular'),
-    color: 'rgba(255,255,255,0.7)',
+    color: '#6B7280',
     textAlign: 'center',
     lineHeight: 24,
   },
@@ -696,6 +689,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   modalCloseButtonText: {
     fontSize: 16,

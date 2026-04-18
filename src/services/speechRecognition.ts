@@ -19,6 +19,10 @@ export class SpeechRecognitionService {
   private lastWordResults: AzureWordResult[] = [];
 
   async transcribeAudio(audioUri: string, expectedText?: string): Promise<TranscriptionResult> {
+    // Clear stale word results from any previous call so getWordLevelResults
+    // never returns results that belong to a different word.
+    this.lastWordResults = [];
+
     try {
       const service = getAzureSpeechService();
 

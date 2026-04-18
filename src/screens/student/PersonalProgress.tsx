@@ -9,9 +9,7 @@ import {
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { auth, db } from "../../services/firebase";
-import { collection, query, where, getDocs, orderBy, doc, getDoc } from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
+import { supabase, auth } from "../../services/supabase";
 import { COLORS } from "../../constants/theme";
 import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
@@ -47,125 +45,97 @@ export default function PersonalProgress({ navigation }: any) {
   const [hasProgress, setHasProgress] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const currentUser = session?.user ?? null;
       if (currentUser) {
         setUser(currentUser);
-        fetchPersonalProgress(currentUser.email);
+        fetchPersonalProgress(currentUser.email ?? null);
       } else {
         setUser(null);
         setLoading(false);
       }
     });
-    return unsubscribe;
+    return () => subscription.unsubscribe();
   }, []);
 
   const fetchPersonalProgress = async (_email: string | null) => {
     setLoading(true);
     try {
-      // Get user's current progress from StudentProgress collection
       const user = auth.currentUser;
       if (!user) return;
 
-      // For personal practice, use the personal practice document ID
-      const personalDocId = `${user.uid}_PERSONAL_PRACTICE`;
-      const progressDoc = await getDoc(doc(db, "StudentProgress", personalDocId));
+      const personalDocId = `${user.id}_PERSONAL_PRACTICE`;
+
+      const { data: personal } = await supabase
+        .from('student_progress')
+        .select('reader_level, student_level, macro_level, current_macro_level, macro_level_progress, current_content_type, first_attempt_scores')
+        .eq('id', personalDocId)
+        .single();
+
       let currentReaderLevel: 1 | 2 | 3 | 4 = 1;
       let currentMacroLevel = 1;
-
-      let macroLevelProgress = {};
+      let macroLevelProgress: Record<string, any> = {};
       let currentContentType: 'words' | 'sentences' | 'paragraphs' = 'words';
-      
-      if (progressDoc.exists()) {
-        const progressData = progressDoc.data();
-        currentReaderLevel = progressData.readerLevel || progressData.studentLevel || 1;
-        currentMacroLevel = progressData.macroLevel || progressData.currentMacroLevel || 1;
-        macroLevelProgress = progressData.macroLevelProgress || {};
-        currentContentType = progressData.currentContentType || 'words';
+
+      if (personal) {
+        currentReaderLevel = personal.reader_level || personal.student_level || 1;
+        currentMacroLevel = personal.macro_level || personal.current_macro_level || 1;
+        macroLevelProgress = personal.macro_level_progress || {};
+        currentContentType = personal.current_content_type || 'words';
       }
 
-      // Query for ALL student progress across all rooms
-      const allProgressQuery = query(
-        collection(db, "StudentProgress"),
-        where("userId", "==", user.uid)
-      );
+      const { data: allRows } = await supabase
+        .from('student_progress')
+        .select('id, first_attempt_scores, macro_level_progress, scores, scores_array')
+        .eq('user_id', user.id);
 
-      const allProgressSnap = await getDocs(allProgressQuery);
-
-      // Calculate completed counts from new firstAttemptScores or old macroLevelProgress
       let wordsCompleted = 0;
       let sentencesCompleted = 0;
       let paragraphsCompleted = 0;
 
-      if (progressDoc.exists()) {
-        const progressData = progressDoc.data();
-        if (progressData.firstAttemptScores) {
-          // New format: count from firstAttemptScores keys
-          const fas = progressData.firstAttemptScores as Record<string, number>;
-          Object.keys(fas).forEach(key => {
-            const level = parseInt(key);
-            if (level <= 10) wordsCompleted++;
-            else if (level <= 20) sentencesCompleted++;
-            else paragraphsCompleted++;
-          });
-        } else if (progressData.macroLevelProgress) {
-          // Legacy format
-          const currentMacroProgress = progressData.macroLevelProgress[currentMacroLevel] || {
-            words: { scores: [] }, sentences: { scores: [] }, paragraphs: { scores: [] }
-          };
-          wordsCompleted = currentMacroProgress.words?.scores?.length || 0;
-          sentencesCompleted = currentMacroProgress.sentences?.scores?.length || 0;
-          paragraphsCompleted = currentMacroProgress.paragraphs?.scores?.length || 0;
-        }
+      if (personal?.first_attempt_scores) {
+        const fas = personal.first_attempt_scores as Record<string, number>;
+        Object.keys(fas).forEach(key => {
+          const level = parseInt(key);
+          if (level <= 10) wordsCompleted++;
+          else if (level <= 20) sentencesCompleted++;
+          else paragraphsCompleted++;
+        });
+      } else if (personal?.macro_level_progress) {
+        const currentMacroProgress = personal.macro_level_progress[currentMacroLevel] || {
+          words: { scores: [] }, sentences: { scores: [] }, paragraphs: { scores: [] }
+        };
+        wordsCompleted = currentMacroProgress.words?.scores?.length || 0;
+        sentencesCompleted = currentMacroProgress.sentences?.scores?.length || 0;
+        paragraphsCompleted = currentMacroProgress.paragraphs?.scores?.length || 0;
       }
 
-      // Calculate correct/incorrect from ALL rooms
       let totalCorrect = 0;
       let totalIncorrect = 0;
       let allScoresAcrossRooms: number[] = [];
 
-      allProgressSnap.forEach((doc) => {
-        const data = doc.data();
+      (allRows ?? []).forEach((row) => {
+        if (row.id === personalDocId) return;
 
-        // New format: firstAttemptScores
-        if (data.firstAttemptScores) {
-          Object.values(data.firstAttemptScores).forEach((score: any) => {
+        if (row.first_attempt_scores) {
+          Object.values(row.first_attempt_scores).forEach((score: any) => {
             const s = Number(score);
             allScoresAcrossRooms.push(s);
-            if (s >= 70) totalCorrect++;
-            else totalIncorrect++;
+            if (s >= 70) totalCorrect++; else totalIncorrect++;
           });
         }
-
-        // Legacy format: macroLevelProgress
-        if (data.macroLevelProgress) {
-          Object.values(data.macroLevelProgress).forEach((macroLevel: any) => {
+        if (row.macro_level_progress) {
+          Object.values(row.macro_level_progress).forEach((ml: any) => {
             ['words', 'sentences', 'paragraphs'].forEach(type => {
-              if (macroLevel[type]?.scores) {
-                macroLevel[type].scores.forEach((score: number) => {
-                  allScoresAcrossRooms.push(score);
-                  if (score >= 70) totalCorrect++;
-                  else totalIncorrect++;
-                });
-              }
+              (ml[type]?.scores ?? []).forEach((score: number) => {
+                allScoresAcrossRooms.push(score);
+                if (score >= 70) totalCorrect++; else totalIncorrect++;
+              });
             });
           });
         }
-
-        // Also count from legacy scores/scoresArray
-        if (data.scores && Array.isArray(data.scores)) {
-          data.scores.forEach((score: number) => {
-            allScoresAcrossRooms.push(score);
-            if (score >= 70) totalCorrect++;
-            else totalIncorrect++;
-          });
-        }
-        if (data.scoresArray && Array.isArray(data.scoresArray)) {
-          data.scoresArray.forEach((score: number) => {
-            allScoresAcrossRooms.push(score);
-            if (score >= 70) totalCorrect++;
-            else totalIncorrect++;
-          });
-        }
+        (row.scores ?? []).forEach((s: number) => { allScoresAcrossRooms.push(s); if (s >= 70) totalCorrect++; else totalIncorrect++; });
+        (row.scores_array ?? []).forEach((s: number) => { allScoresAcrossRooms.push(s); if (s >= 70) totalCorrect++; else totalIncorrect++; });
       });
 
       const totalAttempts = totalCorrect + totalIncorrect;
@@ -187,7 +157,7 @@ export default function PersonalProgress({ navigation }: any) {
       const canAdvanceToNextMacro = wordsCompleted + sentencesCompleted + paragraphsCompleted >= 30;
 
       // Check if user has any progress at all
-      if (allProgressSnap.empty || totalAttempts === 0) {
+      if (!allRows || allRows.length === 0 || totalAttempts === 0) {
         setHasProgress(false);
         setLoading(false);
         return;
@@ -214,6 +184,7 @@ export default function PersonalProgress({ navigation }: any) {
       setHasProgress(true);
       
     } catch (error) {
+      console.error('PersonalProgress: failed to load progress', error);
       setHasProgress(false);
     } finally {
       setLoading(false);
@@ -223,8 +194,8 @@ export default function PersonalProgress({ navigation }: any) {
   const handleStartPractice = () => {
     if (!user) return;
     
-    // Navigate directly to personal practice room
-    navigation.navigate('PersonalPracticeRoom');
+    // Navigate to the unified room with personal practice mode
+    navigation.navigate('PronunciationRoom', { roomData: { isPersonalRoom: true } });
   };
 
   const handleGoBack = () => {
@@ -263,7 +234,7 @@ export default function PersonalProgress({ navigation }: any) {
     return (
       <ScreenLayout>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.white} />
+          <ActivityIndicator size="large" color={COLORS.primary} />
           <Text style={styles.loadingText}>Analyzing your progress...</Text>
         </View>
       </ScreenLayout>
@@ -273,16 +244,9 @@ export default function PersonalProgress({ navigation }: any) {
   if (!hasProgress) {
     return (
       <ScreenLayout>
-          <View style={styles.header}>
-            <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-              <Ionicons name="arrow-back" size={20} color={COLORS.white} />
-              <Text style={styles.backButtonText}>Back</Text>
-            </TouchableOpacity>
-          </View>
-
           <View style={styles.initiationContainer}>
             <View style={styles.initiationContent}>
-              <Ionicons name="mic-circle" size={80} color={COLORS.white} />
+              <Ionicons name="mic-circle" size={80} color={COLORS.primary} />
               <Text style={styles.initiationTitle}>Start Your Pronunciation Journey</Text>
               <Text style={styles.initiationSubtitle}>
                 Begin practicing to track your Reader Level and Macro Level progression!
@@ -293,7 +257,7 @@ export default function PersonalProgress({ navigation }: any) {
                 onPress={handleStartPractice}
                 activeOpacity={0.8}
               >
-                <Ionicons name="play-circle" size={24} color={COLORS.primary} />
+                <Ionicons name="play-circle" size={24} color={COLORS.white} />
                 <Text style={styles.startButtonText}>Start Practicing</Text>
               </TouchableOpacity>
             </View>
@@ -304,13 +268,6 @@ export default function PersonalProgress({ navigation }: any) {
 
   return (
     <ScreenLayout>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={20} color={COLORS.white} />
-            <Text style={styles.backButtonText}>Back</Text>
-          </TouchableOpacity>
-        </View>
-
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={styles.title}>Personal Progress</Text>
           
@@ -422,34 +379,13 @@ export default function PersonalProgress({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    paddingTop: 20,
-    paddingBottom: 10,
-  },
-  backButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.3)",
-    alignSelf: "flex-start",
-  },
-  backButtonText: {
-    fontSize: 16,
-    color: COLORS.white,
-    fontFamily: getFontFamily('medium'),
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
   loadingText: {
-    color: COLORS.white,
+    color: '#374151',
     fontSize: 16,
     marginTop: 12,
     fontFamily: getFontFamily('regular'),
@@ -461,17 +397,16 @@ const styles = StyleSheet.create({
   },
   initiationContent: {
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: '#F9FAFB',
     borderRadius: 20,
     padding: 40,
     margin: 20,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderColor: '#E5E7EB',
   },
   initiationTitle: {
     fontSize: 24,
-    fontWeight: "600",
-    color: COLORS.white,
+    color: '#111827',
     textAlign: "center",
     marginTop: 20,
     marginBottom: 12,
@@ -479,7 +414,7 @@ const styles = StyleSheet.create({
   },
   initiationSubtitle: {
     fontSize: 16,
-    color: "rgba(255, 255, 255, 0.8)",
+    color: '#6B7280',
     textAlign: "center",
     marginBottom: 30,
     lineHeight: 24,
@@ -488,7 +423,8 @@ const styles = StyleSheet.create({
   startButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.white,
+    justifyContent: "center",
+    backgroundColor: COLORS.primary,
     paddingHorizontal: 24,
     paddingVertical: 14,
     borderRadius: 25,
@@ -496,8 +432,7 @@ const styles = StyleSheet.create({
   },
   startButtonText: {
     fontSize: 16,
-    fontWeight: "600",
-    color: COLORS.primary,
+    color: COLORS.white,
     fontFamily: getFontFamily('semibold'),
   },
   content: {
@@ -516,7 +451,6 @@ const styles = StyleSheet.create({
   },
   statsTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
     color: COLORS.black,
     marginBottom: 4,
     textAlign: 'center',
@@ -539,7 +473,6 @@ const styles = StyleSheet.create({
   },
   statItemNumber: {
     fontSize: 24,
-    fontWeight: 'bold',
     color: COLORS.black,
     marginTop: 8,
     fontFamily: getFontFamily('bold'),
@@ -560,8 +493,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 28,
-    fontWeight: "700",
-    color: COLORS.white,
+    color: '#111827',
     textAlign: "center",
     marginBottom: 30,
     fontFamily: getFontFamily('bold'),
@@ -571,11 +503,11 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   levelCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    backgroundColor: '#F3F4F6',
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderColor: '#E5E7EB',
   },
   levelHeader: {
     flexDirection: "row",
@@ -585,7 +517,7 @@ const styles = StyleSheet.create({
   },
   levelLabel: {
     fontSize: 16,
-    color: "rgba(255, 255, 255, 0.8)",
+    color: '#6B7280',
     fontFamily: getFontFamily('medium'),
   },
   levelBadge: {
@@ -597,20 +529,18 @@ const styles = StyleSheet.create({
   },
   levelText: {
     fontSize: 16,
-    fontWeight: "700",
     color: "#fff",
     fontFamily: getFontFamily('bold'),
   },
   levelName: {
     fontSize: 18,
-    fontWeight: "600",
-    color: COLORS.white,
+    color: '#111827',
     marginBottom: 8,
     fontFamily: getFontFamily('semibold'),
   },
   levelDescription: {
     fontSize: 14,
-    color: "rgba(255, 255, 255, 0.7)",
+    color: '#6B7280',
     lineHeight: 20,
     marginBottom: 16,
     fontFamily: getFontFamily('regular'),
@@ -619,17 +549,17 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255, 255, 255, 0.2)",
+    borderTopColor: '#E5E7EB',
   },
   overallProgressLabel: {
     fontSize: 14,
-    color: "rgba(255, 255, 255, 0.8)",
+    color: '#6B7280',
     marginBottom: 8,
     fontFamily: getFontFamily('medium'),
   },
   overallProgressBar: {
     height: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    backgroundColor: '#E5E7EB',
     borderRadius: 4,
     overflow: "hidden",
     marginBottom: 8,
@@ -640,7 +570,7 @@ const styles = StyleSheet.create({
   },
   overallProgressText: {
     fontSize: 12,
-    color: "rgba(255, 255, 255, 0.7)",
+    color: '#9CA3AF',
     textAlign: "center",
     fontFamily: getFontFamily('regular'),
   },
@@ -659,24 +589,23 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     minWidth: "45%",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: '#F9FAFB',
     borderRadius: 16,
     padding: 16,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderColor: '#E5E7EB',
   },
   statNumber: {
     fontSize: 24,
-    fontWeight: "700",
-    color: COLORS.white,
+    color: '#111827',
     marginTop: 8,
     marginBottom: 4,
     fontFamily: getFontFamily('bold'),
   },
   statLabel: {
     fontSize: 12,
-    color: "rgba(255, 255, 255, 0.7)",
+    color: '#9CA3AF',
     textAlign: "center",
     fontFamily: getFontFamily('regular'),
   },
@@ -694,7 +623,6 @@ const styles = StyleSheet.create({
   },
   practiceButtonText: {
     fontSize: 18,
-    fontWeight: "600",
     color: COLORS.white,
     fontFamily: getFontFamily('semibold'),
   },
@@ -704,24 +632,23 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 20,
-    fontWeight: "700",
-    color: COLORS.white,
+    color: '#111827',
     marginBottom: 8,
     fontFamily: getFontFamily('bold'),
   },
   sectionSubtitle: {
     fontSize: 14,
-    color: "rgba(255, 255, 255, 0.7)",
+    color: '#6B7280',
     marginBottom: 20,
     fontFamily: getFontFamily('regular'),
   },
   challengeCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: '#F9FAFB',
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderColor: '#E5E7EB',
   },
   challengeHeader: {
     flexDirection: "row",
@@ -732,7 +659,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    backgroundColor: '#F3F4F6',
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -742,7 +669,6 @@ const styles = StyleSheet.create({
   },
   challengeTitle: {
     fontSize: 16,
-    fontWeight: "600",
     color: COLORS.white,
     marginBottom: 4,
     fontFamily: getFontFamily('semibold'),
@@ -776,7 +702,6 @@ const styles = StyleSheet.create({
   advancementText: {
     flex: 1,
     fontSize: 14,
-    fontWeight: "600",
     color: COLORS.white,
     fontFamily: getFontFamily('semibold'),
   },

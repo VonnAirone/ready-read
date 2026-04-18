@@ -215,15 +215,41 @@ export class AzureSpeechService {
 }
 
 let azureService: AzureSpeechService | null = null;
+let initializationError: Error | null = null;
 
-export const initializeAzureSpeech = (key: string, region: string): AzureSpeechService => {
-  azureService = new AzureSpeechService(key, region);
-  return azureService;
+export const initializeAzureSpeech = (key: string, region: string): AzureSpeechService | null => {
+  try {
+    // Validate credentials
+    if (!key || typeof key !== 'string' || key.trim().length === 0) {
+      throw new Error('Azure Speech key is empty or invalid');
+    }
+    if (!region || typeof region !== 'string' || region.trim().length === 0) {
+      throw new Error('Azure Speech region is empty or invalid');
+    }
+
+    azureService = new AzureSpeechService(key, region);
+    initializationError = null;
+    console.log('Azure Speech service initialized successfully');
+    return azureService;
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    initializationError = err;
+    console.error('Failed to initialize Azure Speech service:', err.message);
+    azureService = null;
+    return null;
+  }
 };
 
 export const getAzureSpeechService = (): AzureSpeechService => {
   if (!azureService) {
-    throw new Error('Azure Speech service not initialized. Call initializeAzureSpeech first.');
+    const errorMessage = initializationError 
+      ? `Azure Speech service not available: ${initializationError.message}`
+      : 'Azure Speech service not initialized. Call initializeAzureSpeech first.';
+    throw new Error(errorMessage);
   }
   return azureService;
+};
+
+export const isAzureSpeechServiceAvailable = (): boolean => {
+  return azureService !== null;
 };

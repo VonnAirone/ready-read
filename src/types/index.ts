@@ -79,11 +79,11 @@ export type RootStackParamList = {
 
   // Student
   CreatePlayerName: undefined;
+  StudentTabs: undefined;
+  DashboardScreen: undefined;
   Join: undefined;
   PronunciationRoom: { roomData: Room };
   Confirm: undefined;
-  PersonalProgress: undefined;
-  PersonalPracticeRoom: undefined;
-  PracticeGame: undefined;
+  PersonalPractice: { sessionId?: string; userId?: string } | undefined;
   Start: { roomData: Room };
 };

@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { onAuthStateChanged, User } from "firebase/auth";
-import { auth, db } from "./src/services/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { supabase, auth } from "./src/services/supabase";
+import type { User } from "@supabase/supabase-js";
 import * as SplashScreen from 'expo-splash-screen';
 import useCustomFonts from './hooks/useFonts';
 
@@ -23,15 +22,10 @@ import StudentList from "./src/screens/teacher/StudentList";
 import PronunciationWordsList from "./src/screens/teacher/PronunciationWordsList";
 import AssessmentResults from "./src/screens/teacher/AssessmentResults";
 
-import StudentDashboard from "./src/screens/student/StudentDashboard";
 import SetupPlayerProfile from "./src/screens/student/SetupPlayerProfile";
-import JoinGameRoom from "./src/screens/student/JoinGameRoom";
-import RegularRoom from "./src/screens/student/RegularRoom";
+import StudentDashboard from "./src/screens/student/StudentDashboard";
 import Leaderboard from "./src/screens/Leaderboard";
-import Confirm from "./src/screens/student/Confirm";
-import PersonalProgress from "./src/screens/student/PersonalProgress";
-import PersonalPracticeRoom from "./src/screens/student/PersonalPracticeRoom";
-import populateGameContent from "./src/data/demoContent";
+import { StudentTabNavigator } from "./src/navigation/StudentTabNavigator";
 import { initializeAzureSpeech } from "./src/services/azureSpeech";
 import { AZURE_SPEECH_KEY, AZURE_SPEECH_REGION } from "@env";
 
@@ -39,7 +33,10 @@ import { AZURE_SPEECH_KEY, AZURE_SPEECH_REGION } from "@env";
 if (!AZURE_SPEECH_KEY || !AZURE_SPEECH_REGION) {
   console.error('Azure Speech env vars missing — check AZURE_SPEECH_KEY and AZURE_SPEECH_REGION in .env');
 } else {
-  initializeAzureSpeech(AZURE_SPEECH_KEY, AZURE_SPEECH_REGION);
+  const result = initializeAzureSpeech(AZURE_SPEECH_KEY, AZURE_SPEECH_REGION);
+  if (!result) {
+    console.warn('Azure Speech initialization failed - speech features will be unavailable');
+  }
 }
 
 const Stack = createNativeStackNavigator();
@@ -53,38 +50,34 @@ const AppNavigation = () => {
   const { isFirstTime, isLoading, setFirstTimeComplete } = useOnboarding();
   const fontsLoaded = useCustomFonts();
 
-  // Initialize game content on app startup
   useEffect(() => {
-    try {
-      populateGameContent();
-    } catch (error) {
-      console.error('Error initializing content:', error);
-    }
-  }, []);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const currentUser = session?.user ?? null;
       setUser(currentUser);
 
       if (currentUser) {
         try {
-          const teacherDoc = await getDoc(doc(db, "teacherAccounts", currentUser.uid));
-          const studentDoc = await getDoc(doc(db, "studentAccounts", currentUser.uid));
+          const { data: teacherRow } = await supabase
+            .from('teacher_accounts')
+            .select('id')
+            .eq('id', currentUser.id)
+            .single();
 
-          if (teacherDoc.exists()) {
+          if (teacherRow) {
             setRole("teacher");
             setHasPlayerName(true);
-          } else if (studentDoc.exists()) {
-            setRole("student");
-            const playerDoc = await getDoc(doc(db, "Playername", currentUser.uid));
-            setHasPlayerName(playerDoc.exists() && !!playerDoc.data()?.playerName);
           } else {
-            const playerDoc = await getDoc(doc(db, "Playername", currentUser.uid));
             setRole("student");
-            setHasPlayerName(playerDoc.exists() && !!playerDoc.data()?.playerName);
+            const { data: playerRow } = await supabase
+              .from('player_names')
+              .select('player_name')
+              .eq('id', currentUser.id)
+              .single();
+            setHasPlayerName(!!playerRow?.player_name);
           }
         } catch (error) {
           console.error("Error fetching user role:", error);
+          try { await supabase.auth.signOut(); } catch (_) {}
           setRole(null);
           setHasPlayerName(false);
         }
@@ -96,7 +89,7 @@ const AppNavigation = () => {
       setLoading(false);
     });
 
-    return unsubscribe;
+    return () => subscription.unsubscribe();
   }, []);
 
   // Show splash screen while loading fonts, checking onboarding, or checking auth state
@@ -149,34 +142,27 @@ const AppNavigation = () => {
             <Stack.Screen name="Leaderboard" component={Leaderboard} />
           </>
         ) : role === "student" ? (
-          // Student Stack
+          // Student Stack with Tab Navigator
           <>
             {hasPlayerName ? (
-              // Student with existing player name - go directly to Dashboard
-              <>
-                <Stack.Screen name="GameMenu" component={StudentDashboard} />
-                <Stack.Screen name="CreatePlayerName" component={SetupPlayerProfile} />
-                <Stack.Screen name="Join" component={JoinGameRoom} />
-                <Stack.Screen name="PronunciationRoom" component={RegularRoom} />
-                <Stack.Screen name="Confirm" component={Confirm} />
-                <Stack.Screen name="PersonalProgress" component={PersonalProgress} />
-                <Stack.Screen name="PersonalPracticeRoom" component={PersonalPracticeRoom} />
-                <Stack.Screen name="Leaderboard" component={Leaderboard} />
-              </>
+              // Student with existing player name - go directly to tab navigator
+              <Stack.Screen
+                name="StudentTabs"
+                component={StudentTabNavigator}
+              />
             ) : (
               // Student without player name - must create one first
               <>
-                <Stack.Screen name="CreatePlayerName" component={SetupPlayerProfile} />
-                <Stack.Screen name="GameMenu" component={StudentDashboard} />
-                <Stack.Screen name="Join" component={JoinGameRoom} />
-                <Stack.Screen name="PronunciationRoom" component={RegularRoom} />
-                <Stack.Screen name="Confirm" component={Confirm} />
-                <Stack.Screen name="PersonalProgress" component={PersonalProgress} />
-                <Stack.Screen name="PersonalPracticeRoom" component={PersonalPracticeRoom} />
-                <Stack.Screen name="Leaderboard" component={Leaderboard} />
+                <Stack.Screen
+                  name="CreatePlayerName"
+                  component={SetupPlayerProfile}
+                />
+                <Stack.Screen
+                  name="StudentTabs"
+                  component={StudentTabNavigator}
+                />
               </>
             )}
-            <Stack.Screen name="Room" component={ManageRooms} />
           </>
         ) : (
           // Fallback if no role found

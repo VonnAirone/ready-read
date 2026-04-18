@@ -119,6 +119,9 @@ export class AudioRecordingService {
       try {
         await this.recording.stopAndUnloadAsync();
       } catch (error) {
+        // stopAndUnloadAsync can fail if the recording was already stopped —
+        // log but do not rethrow; cleanup must still run to release the ref.
+        console.warn('cancelRecording: stopAndUnloadAsync failed:', error);
       }
     }
     this.cleanup();

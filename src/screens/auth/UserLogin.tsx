@@ -9,11 +9,21 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../../services/firebase";
+import { supabase } from "../../services/supabase";
 import { getFontFamily } from "../../../styles/fonts";
 import { COLORS } from "../../constants/theme";
 import { ScreenLayout } from "../../components/ScreenLayout";
+
+const getAuthErrorMessage = (message: string): string => {
+  const msg = message.toLowerCase();
+  if (msg.includes('invalid login') || msg.includes('invalid credentials') || msg.includes('user not found')) {
+    return 'No account found with this email or password.';
+  }
+  if (msg.includes('invalid email')) return 'Please enter a valid email address.';
+  if (msg.includes('network') || msg.includes('fetch')) return 'Network error. Please check your connection and try again.';
+  if (msg.includes('rate limit') || msg.includes('too many')) return 'Too many attempts. Please wait a moment before trying again.';
+  return 'Something went wrong. Please try again.';
+};
 
 export default function LoginScreen({ navigation }: any) {
   const [email, setEmail] = useState("");
@@ -29,10 +39,11 @@ const handleLogin = async () => {
 
   setLoading(true);
   try {
-    // ✅ Just sign in → App.tsx will check Firestore & route correctly
-    await signInWithEmailAndPassword(auth, email, password);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
   } catch (err: any) {
-    Alert.alert("Login Error", err.message);
+    console.error('[Login] error:', err);
+    Alert.alert("Login Error", getAuthErrorMessage(err.message ?? ''));
   } finally {
     setLoading(false);
   }
@@ -134,7 +145,7 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily('regular'),
   },
   label: {
-    fontSize: 18,
+    fontSize: 16,
     color: COLORS.black,
     fontFamily: getFontFamily('regular'),
     marginBottom: 10,
@@ -184,6 +195,7 @@ const styles = StyleSheet.create({
   signupBtn: {
     marginTop: 20,
     alignItems: "center",
+    justifyContent: "center",
   },
   signupText: {
     fontSize: 16,
