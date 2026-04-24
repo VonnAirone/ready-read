@@ -1241,12 +1241,12 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         staysActiveInBackground: false,
       });
 
-      // Use WAV PCM on Android so Azure Speech can decode it (M4A/AAC is rejected)
+      // Use MPEG_4/AAC on Android — DEFAULT format produces 3GPP/AMR which Azure cannot decode.
       const { recording } = await Audio.Recording.createAsync({
         android: {
-          extension: '.wav',
-          outputFormat: Audio.AndroidOutputFormat.DEFAULT,
-          audioEncoder: Audio.AndroidAudioEncoder.DEFAULT,
+          extension: '.m4a',
+          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+          audioEncoder: Audio.AndroidAudioEncoder.AAC,
           sampleRate: 16000,
           numberOfChannels: 1,
           bitRate: 128000,

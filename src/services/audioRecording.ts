@@ -43,9 +43,11 @@ export class AudioRecordingService {
 
       const { recording } = await Audio.Recording.createAsync({
         android: {
-          extension: '.wav',
-          outputFormat: Audio.AndroidOutputFormat.DEFAULT,
-          audioEncoder: Audio.AndroidAudioEncoder.DEFAULT,
+          // DEFAULT format produces 3GPP/AMR which Azure Speech cannot decode.
+          // MPEG_4 + AAC produces real MP4/AAC audio that Azure accepts.
+          extension: '.m4a',
+          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+          audioEncoder: Audio.AndroidAudioEncoder.AAC,
           sampleRate: 16000,
           numberOfChannels: 1,
           bitRate: 256000,
