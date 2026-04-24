@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Component, type ReactNode } from "react";
+import { View, Text, StyleSheet, Alert, Platform } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { supabase, auth } from "./src/services/supabase";
 import type { User } from "@supabase/supabase-js";
-import * as SplashScreen from 'expo-splash-screen';
 import useCustomFonts from './hooks/useFonts';
 
 import { OnboardingProvider, useOnboarding } from "./src/contexts/OnboardingContext";
@@ -27,17 +27,62 @@ import StudentDashboard from "./src/screens/student/StudentDashboard";
 import Leaderboard from "./src/screens/Leaderboard";
 import { StudentTabNavigator } from "./src/navigation/StudentTabNavigator";
 import { initializeAzureSpeech } from "./src/services/azureSpeech";
-import { AZURE_SPEECH_KEY, AZURE_SPEECH_REGION } from "@env";
+import { AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, AZURE_PROXY_URL } from "@env";
 
-// Initialize Azure Speech once at app startup so all screens can use it.
-if (!AZURE_SPEECH_KEY || !AZURE_SPEECH_REGION) {
-  console.error('Azure Speech env vars missing — check AZURE_SPEECH_KEY and AZURE_SPEECH_REGION in .env');
-} else {
-  const result = initializeAzureSpeech(AZURE_SPEECH_KEY, AZURE_SPEECH_REGION);
+// On web the Azure key must never ship in the browser bundle — use the backend proxy.
+// On native (iOS/Android) we call Azure directly with the key from the build env.
+if (Platform.OS === 'web') {
+  // AZURE_PROXY_URL is '' on Vercel (same-domain) or 'http://localhost:5000' locally.
+  // Pass it as proxyUrl so the key never reaches the browser bundle.
+  const result = initializeAzureSpeech('', '', AZURE_PROXY_URL ?? '');
   if (!result) {
-    console.warn('Azure Speech initialization failed - speech features will be unavailable');
+    console.warn('Azure Speech proxy initialization failed - speech features will be unavailable');
+  }
+} else {
+  if (!AZURE_SPEECH_KEY || !AZURE_SPEECH_REGION) {
+    console.error('Azure Speech env vars missing — check AZURE_SPEECH_KEY and AZURE_SPEECH_REGION in .env');
+  } else {
+    const result = initializeAzureSpeech(AZURE_SPEECH_KEY, AZURE_SPEECH_REGION);
+    if (!result) {
+      console.warn('Azure Speech initialization failed - speech features will be unavailable');
+    }
   }
 }
+
+// ── Error boundary — catches JS crashes and shows a readable screen ──────────
+interface ErrorBoundaryState { error: Error | null }
+
+class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={errorStyles.container}>
+          <Text style={errorStyles.title}>Something went wrong</Text>
+          <Text style={errorStyles.message}>{this.state.error.message}</Text>
+          <Text style={errorStyles.hint}>
+            If this is a build issue, check that all EAS environment variables are set:
+            {'\n'}SUPABASE_URL, SUPABASE_ANON_KEY, AZURE_SPEECH_KEY, AZURE_SPEECH_REGION
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const errorStyles = StyleSheet.create({
+  container: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#fff' },
+  title: { fontSize: 20, fontWeight: 'bold', color: '#dc2626', marginBottom: 12 },
+  message: { fontSize: 14, color: '#374151', textAlign: 'center', marginBottom: 16, fontFamily: 'monospace' },
+  hint: { fontSize: 12, color: '#6b7280', textAlign: 'center', lineHeight: 20 },
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 const Stack = createNativeStackNavigator();
 
@@ -77,9 +122,9 @@ const AppNavigation = () => {
           }
         } catch (error) {
           console.error("Error fetching user role:", error);
-          try { await supabase.auth.signOut(); } catch (_) {}
           setRole(null);
           setHasPlayerName(false);
+          Alert.alert("Session Error", "Could not verify your account. Please log in again.");
         }
       } else {
         setRole(null);
@@ -110,9 +155,9 @@ const AppNavigation = () => {
         }
       }
     };
-    
+
     return (
-      <AppIntroduction 
+      <AppIntroduction
         navigation={mockNavigation}
       />
     );
@@ -145,13 +190,11 @@ const AppNavigation = () => {
           // Student Stack with Tab Navigator
           <>
             {hasPlayerName ? (
-              // Student with existing player name - go directly to tab navigator
               <Stack.Screen
                 name="StudentTabs"
                 component={StudentTabNavigator}
               />
             ) : (
-              // Student without player name - must create one first
               <>
                 <Stack.Screen
                   name="CreatePlayerName"
@@ -175,8 +218,10 @@ const AppNavigation = () => {
 
 export default function App() {
   return (
-    <OnboardingProvider>
-      <AppNavigation />
-    </OnboardingProvider>
+    <ErrorBoundary>
+      <OnboardingProvider>
+        <AppNavigation />
+      </OnboardingProvider>
+    </ErrorBoundary>
   );
 }

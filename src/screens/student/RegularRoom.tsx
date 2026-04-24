@@ -7,6 +7,7 @@ import {
   ScrollView,
   Alert,
   Modal,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -28,6 +29,8 @@ import {
   ASSESSMENT_ITEMS,
   STARTER_WORDS,
   determineReaderLevel,
+  calculateTotalScore,
+  PASS_THRESHOLD,
   type AssessmentItem
 } from "../../data/assessmentData";
 
@@ -75,6 +78,8 @@ export default function RegularRoom({ route }: any) {
   >("easy");
   const [streakCount, setStreakCount] = useState(0);
   const [showStatsModal, setShowStatsModal] = useState(false);
+  const [showMispronunciationModal, setShowMispronunciationModal] = useState(false);
+  const mispronounceSlideAnim = useRef(new Animated.Value(500)).current;
 
 type ContentType = 'words' | 'sentences' | 'paragraphs';
 
@@ -118,7 +123,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   const [itemBestScores, setItemBestScores] = useState<Record<string, number>>({});
 
   // In-memory snapshots per reader level — updated synchronously before any setState calls
-  // so panel navigation always restores the correct state without Firestore timing issues.
+  // so panel navigation always restores the correct state without Supabase timing issues.
   const readerLevelSnapshotsRef = useRef<Record<number, {
     currentMacroLevel: number;
     currentContentType: 'words' | 'sentences' | 'paragraphs';
@@ -498,7 +503,6 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     if (advance && currentMacroLevel < 4) {
       // Compute next level once — avoids stale closure in functional state updaters
       const newMacroLevel = (currentMacroLevel + 1) as 1 | 2 | 3 | 4;
-      // Advance to next macro level
       setCurrentMacroLevel(newMacroLevel);
       setCurrentContentType('words');
       setCurrentIndex(0);
@@ -514,11 +518,58 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       const wordContent = await loadMacroLevelContent(studentLevel, newMacroLevel, 'words');
       setContentItems(wordContent || []);
       setWords((wordContent || []).map(item => item.text));
-      // Reset UI state for new macro level
       setRecognizedText("");
       setWordResults([]);
       setScore(null);
       setCompleted(false);
+    } else if (advance && currentMacroLevel === 4) {
+      // All 4 macro levels done — advance reader level if not already at 4
+      const nextReaderLevel = Math.min(studentLevel + 1, 4) as 1 | 2 | 3 | 4;
+      setStudentLevel(nextReaderLevel);
+      setHighestUnlockedLevel(prev => Math.max(prev, nextReaderLevel) as 1 | 2 | 3 | 4);
+      setCurrentMacroLevel(1);
+      setCurrentContentType('words');
+      setCurrentIndex(0);
+      setScoresArray([]);
+      setMacroLevelMap({
+        1: { status: 'in_progress', bestScore: 0, microBestScores: {} },
+        2: { status: 'locked',      bestScore: 0, microBestScores: {} },
+        3: { status: 'locked',      bestScore: 0, microBestScores: {} },
+        4: { status: 'locked',      bestScore: 0, microBestScores: {} },
+      });
+      setMacroLevelProgress({
+        1: { words: { completed: false, scores: [], totalScore: 0 }, sentences: { completed: false, scores: [], totalScore: 0 }, paragraphs: { completed: false, scores: [], totalScore: 0 } },
+        2: { words: { completed: false, scores: [], totalScore: 0 }, sentences: { completed: false, scores: [], totalScore: 0 }, paragraphs: { completed: false, scores: [], totalScore: 0 } },
+        3: { words: { completed: false, scores: [], totalScore: 0 }, sentences: { completed: false, scores: [], totalScore: 0 }, paragraphs: { completed: false, scores: [], totalScore: 0 } },
+        4: { words: { completed: false, scores: [], totalScore: 0 }, sentences: { completed: false, scores: [], totalScore: 0 }, paragraphs: { completed: false, scores: [], totalScore: 0 } },
+      });
+      setItemBestScores({});
+      const wordContent = await loadMacroLevelContent(nextReaderLevel, 1, 'words');
+      setContentItems(wordContent || []);
+      setWords((wordContent || []).map(item => item.text));
+      setRecognizedText("");
+      setWordResults([]);
+      setScore(null);
+      setCompleted(false);
+      // Persist reader level advancement
+      const advUser = auth.currentUser;
+      if (advUser && isPersonalRoom) {
+        try {
+          await supabase.from('student_progress').upsert({
+            id: `${advUser.id}_PERSONAL_PRACTICE`,
+            user_id: advUser.id,
+            student_level: nextReaderLevel,
+            reader_level: nextReaderLevel,
+            current_macro_level: 1,
+            current_content_type: 'words',
+            current_index: 0,
+            scores_array: [],
+            updated_at: new Date().toISOString(),
+          });
+        } catch (err) {
+          console.error('[RegularRoom] Failed to save reader level advancement:', err);
+        }
+      }
     } else {
       // Repeat current macro level
       setCurrentContentType('words');
@@ -532,19 +583,14 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           paragraphs: { completed: false, scores: [], totalScore: 0 }
         }
       }));
-      
       const wordContent = await loadMacroLevelContent(studentLevel, currentMacroLevel as 1 | 2 | 3 | 4, 'words');
       setContentItems(wordContent || []);
       setWords((wordContent || []).map(item => item.text));
-      // Reset UI state for repeat
       setRecognizedText("");
       setWordResults([]);
       setScore(null);
       setCompleted(false);
     }
-    
-    // Save progress
-    saveProgress();
   };
 
   // Navigate to a different reader level — saves current progress in-memory then restores target level
@@ -565,7 +611,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       showMacroResults,
     };
 
-    // Also fire-and-forget a Firestore save so progress survives app restarts
+    // Also fire-and-forget a Supabase save so progress survives app restarts
     if (isPersonalRoom) {
       saveProgress();
     }
@@ -602,7 +648,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       setWords((content || []).map(item => item.text));
     } else {
       // First visit to this level — check Supabase for a persisted snapshot
-      let restoredFromFirestore = false;
+      let restoredFromSupabase = false;
       const user = auth.currentUser;
       if (isPersonalRoom && user) {
         try {
@@ -634,15 +680,15 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
               );
               setContentItems(content || []);
               setWords((content || []).map(item => item.text));
-              restoredFromFirestore = true;
+              restoredFromSupabase = true;
             }
           }
-        } catch (_) {
-          // Fall through to fresh start
+        } catch (err) {
+          console.warn('[RegularRoom] failed to restore progress from Supabase, starting fresh:', err);
         }
       }
 
-      if (!restoredFromFirestore) {
+      if (!restoredFromSupabase) {
         // No saved state — start fresh at words for this reader level
         setCurrentMacroLevel(1);
         setCurrentContentType('words');
@@ -683,17 +729,28 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     
     // Save macro level navigation
     const user = auth.currentUser;
-    if (user && !isPersonalRoom) {
+    if (user) {
       try {
-        const docId = `${user.id}_${roomData.roomCode}`;
-        await supabase.from('student_progress').upsert({
-          id: docId,
-          user_id: user.id,
-          current_macro_level: targetLevel,
-          current_content_type: 'words',
-          current_index: 0,
-          updated_at: new Date().toISOString(),
-        });
+        if (isPersonalRoom) {
+          await supabase.from('student_progress').upsert({
+            id: `${user.id}_PERSONAL_PRACTICE`,
+            user_id: user.id,
+            current_macro_level: targetLevel,
+            current_content_type: 'words',
+            current_index: 0,
+            scores_array: [],
+            updated_at: new Date().toISOString(),
+          });
+        } else {
+          await supabase.from('student_progress').upsert({
+            id: `${user.id}_${roomData.roomCode}`,
+            user_id: user.id,
+            current_macro_level: targetLevel,
+            current_content_type: 'words',
+            current_index: 0,
+            updated_at: new Date().toISOString(),
+          });
+        }
       } catch (error) {
         console.error('[RegularRoom] Failed to save macro level navigation:', error);
       }
@@ -847,15 +904,8 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       } else {
         setPlayerName("Anonymous");
         setUserId(null);
-        setTimeout(() => {
-          if (!auth.currentUser) {
-            Alert.alert(
-              'Session Expired',
-              'Your session has expired. Please log in again.',
-              [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
-            );
-          }
-        }, 1000);
+        // App.tsx's onAuthStateChange handles redirect to the auth stack automatically.
+        Alert.alert('Session Expired', 'Your session has expired. Please log in again.');
       }
       setIsAuthLoading(false);
     });
@@ -1030,27 +1080,53 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     const user = auth.currentUser;
     if (user) {
       try {
-        const { error: saveError } = await supabase.from('student_progress').upsert({
-          id: `${user.id}_${roomData.roomCode}`,
-          user_id: user.id,
-          player_name: playerName,
-          name: playerName,
-          email: user.email || "",
-          room_code: roomData.roomCode,
-          room_name: roomData.roomName || "Unknown",
-          teacher_id: roomData.teacherId || roomData.createdBy || "",
-          assessment_completed: true,
-          student_level: level,
-          reader_level: level,
-          macro_level: 1,
-          assessment_results: assessmentResults,
-          current_word_index: 0,
-          total_words: 0,
-          scores: [],
-          completed: false,
-          updated_at: new Date().toISOString(),
-        });
-        if (saveError) throw saveError;
+        if (isPersonalRoom) {
+          const { error: saveError } = await supabase.from('student_progress').upsert({
+            id: `${user.id}_PERSONAL_PRACTICE`,
+            user_id: user.id,
+            player_name: playerName,
+            name: playerName,
+            email: user.email || "",
+            room_code: "PERSONAL_PRACTICE",
+            room_name: "Personal Practice Room",
+            assessment_completed: true,
+            student_level: level,
+            reader_level: level,
+            macro_level: 1,
+            assessment_results: assessmentResults,
+            current_index: 0,
+            current_word_index: 0,
+            total_words: 0,
+            scores: [],
+            scores_array: [],
+            completed: false,
+            is_personal_practice: true,
+            updated_at: new Date().toISOString(),
+          });
+          if (saveError) throw saveError;
+        } else if (roomData.roomCode) {
+          const { error: saveError } = await supabase.from('student_progress').upsert({
+            id: `${user.id}_${roomData.roomCode}`,
+            user_id: user.id,
+            player_name: playerName,
+            name: playerName,
+            email: user.email || "",
+            room_code: roomData.roomCode,
+            room_name: roomData.roomName || "Unknown",
+            teacher_id: roomData.teacherId || roomData.createdBy || "",
+            assessment_completed: true,
+            student_level: level,
+            reader_level: level,
+            macro_level: 1,
+            assessment_results: assessmentResults,
+            current_word_index: 0,
+            total_words: 0,
+            scores: [],
+            completed: false,
+            updated_at: new Date().toISOString(),
+          });
+          if (saveError) throw saveError;
+        }
       } catch (saveError) {
         console.error('[RegularRoom] Failed to save assessment results:', saveError);
         throw saveError;
@@ -1206,6 +1282,18 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     
     setIsRecording(false);
     setIsProcessing(true); // ✅ Show processing state
+
+    // Reset audio mode back to speaker playback — recording mode routes iOS audio
+    // through the earpiece (very quiet) and must be explicitly cleared after stopping.
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+      });
+    } catch (err) { console.warn('[RegularRoom] audio mode reset failed:', err); }
     
     try {
       if (!recordingRef.current) {
@@ -1331,7 +1419,8 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
 
   // 🔹 Save StudentProgress
   // latestScore: pass the just-computed score to avoid reading stale React state
-  const saveProgress = async (latestScore?: number) => {
+  // nextIndex: pass currentIndex + 1 from handleProceed to avoid stale state
+  const saveProgress = async (latestScore?: number, nextIndex?: number) => {
     try {
       const user = auth.currentUser;
       if (!user) {
@@ -1365,8 +1454,8 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           email: user.email || "",
           room_code: "PERSONAL_PRACTICE",
           room_name: "Personal Practice Room",
-          current_word_index: currentIndex,
-          current_index: currentIndex,
+          current_word_index: nextIndex ?? currentIndex,
+          current_index: nextIndex ?? currentIndex,
           total_words: words.length,
           scores: scoresArray,
           scores_array: scoresArray,
@@ -1405,7 +1494,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           room_code: roomData.roomCode,
           room_name: roomData.roomName || "Unknown",
           teacher_id: roomData.teacherId || roomData.createdBy || "",
-          current_word_index: currentIndex,
+          current_word_index: nextIndex ?? currentIndex,
           total_words: words.length,
           scores: scoresArray,
           last_word: currentWord || "",
@@ -1435,7 +1524,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     setIsRecording(false);
 
     // Hard guard: do not advance if pronunciation score is below threshold
-    if (!isAssessment && (score === null || score < 70)) return;
+    if (!isAssessment && (score === null || score < PASS_THRESHOLD)) return;
 
     if (isAssessment) {
       // Assessment flow - check if there are more items
@@ -1463,12 +1552,12 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         setCurrentIndex(currentIndex + 1);
         setRecognizedText("");
         setWordResults([]);
-        // Pass the current score explicitly so saveProgress doesn't read stale state
+        // Pass score and next index explicitly — React state is stale in async closures
         const scoreToSave = score ?? 0;
         setScore(null);
         setCompleted(false);
         setAttempts([]);
-        saveProgress(scoreToSave);
+        saveProgress(scoreToSave, currentIndex + 1);
       } else {
         if (usingStarter) {
           setUsingStarter(false);
@@ -1509,7 +1598,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           macroLevel[type].scores.forEach((score: number) => {
             totalAttempts++;
             totalScore += score;
-            if (score >= 70) totalCorrect++;
+            if (score >= PASS_THRESHOLD) totalCorrect++;
             else totalIncorrect++;
           });
         }
@@ -1551,16 +1640,48 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     ? wordResults.filter(w => w.errorType === 'Mispronunciation' || w.errorType === 'Omission')
     : [];
 
+  // Auto-open the mispronunciation modal when analysis finishes with errors
+  useEffect(() => {
+    if (mispronounced.length > 0) {
+      setShowMispronunciationModal(true);
+      mispronounceSlideAnim.setValue(500);
+      Animated.spring(mispronounceSlideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        bounciness: 6,
+        speed: 14,
+      }).start();
+    } else {
+      setShowMispronunciationModal(false);
+    }
+  }, [mispronounced.length]);
+
+  const openMispronunciationModal = () => {
+    setShowMispronunciationModal(true);
+    mispronounceSlideAnim.setValue(500);
+    Animated.spring(mispronounceSlideAnim, {
+      toValue: 0,
+      useNativeDriver: true,
+      bounciness: 6,
+      speed: 14,
+    }).start();
+  };
+
+  const closeMispronunciationModal = () => {
+    Animated.timing(mispronounceSlideAnim, {
+      toValue: 500,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(() => setShowMispronunciationModal(false));
+  };
+
   // 🔹 True when every word is rendered green — gates "Next" vs "Try Again"
   const allWordsGreen = completed && score !== null && (() => {
     if (wordResults.length > 0) {
-      // Trust Azure errorType — a word is only "green" when Azure said None
-      return wordResults.every(
-        w => w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission'
-      );
+      return wordResults.every(w => w.accuracyScore >= PASS_THRESHOLD);
     }
     // Fallback: no word-level results, use overall score
-    if (currentContentType === 'words') return score >= 70;
+    if (currentContentType === 'words') return score >= PASS_THRESHOLD;
     if (!recognizedText || !currentWord) return false;
     const recognized = recognizedText.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w);
     return currentWord.split(/\s+/).filter(w => w).every((word, i) =>
@@ -1573,8 +1694,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     if (!completed || score === null) return '#111827';
 
     if (currentContentType === 'words') {
-      // For single words, green if score >= 70%, red otherwise
-      return score >= 70 ? '#4CAF50' : '#FF5722';
+      return score >= PASS_THRESHOLD ? '#4CAF50' : '#FF5722';
     }
 
     // For sentences/paragraphs, return dark (we'll handle per-word coloring differently)
@@ -1582,9 +1702,19 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   };
 
   // 🔹 Speak a word/phrase using TTS
-  const speakWord = useCallback((text: string) => {
+  const speakWord = useCallback(async (text: string) => {
     Speech.stop();
-    Speech.speak(text, { language: 'en-PH', rate: 0.85, volume: 1.0 });
+    // Force speaker output — recording mode leaves iOS routing through the earpiece.
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+      });
+    } catch (err) { console.warn('[RegularRoom] audio mode setup for TTS failed:', err); }
+    Speech.speak(text, { language: 'en-US', rate: 0.82, volume: 1.0 });
   }, []);
 
   // 🔹 Render colored words for sentences/paragraphs
@@ -1607,7 +1737,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
       wordResults.forEach(w => {
         const key = w.word.toLowerCase();
         // A word is correct if accuracy >= 70 and not a mispronunciation or omission
-        const correct = w.accuracyScore >= 70 && w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission';
+        const correct = w.accuracyScore >= PASS_THRESHOLD && w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission';
         azureMap.set(key, correct);
       });
 
@@ -1650,11 +1780,13 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           />
         )}
 
-        {/* Show loading screen while authentication is being restored */}
-        {isAuthLoading ? (
+        {/* Show loading screen while authentication or content is loading */}
+        {(isAuthLoading || isContentLoading) ? (
           <View style={styles.loadingContainer}>
             <Ionicons name="hourglass" size={48} color="#374151" />
-            <Text style={styles.loadingText}>Restoring session...</Text>
+            <Text style={styles.loadingText}>
+              {isAuthLoading ? "Restoring session..." : "Loading room..."}
+            </Text>
           </View>
         ) : (
         <>
@@ -1790,7 +1922,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                       <Text style={styles.scoreDifficulty}>Level {result.readerLevel}</Text>
                       <Text style={[
                         styles.scoreValue,
-                        { color: result.score >= 70 ? '#4CAF50' : result.score >= 40 ? '#FF9800' : '#FF5722' }
+                        { color: result.score >= PASS_THRESHOLD ? '#4CAF50' : result.score >= 40 ? '#FF9800' : '#FF5722' }
                       ]}>
                         {result.score}%
                       </Text>
@@ -1801,7 +1933,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                 <View style={styles.totalScore}>
                   <Text style={styles.totalScoreLabel}>Total Score:</Text>
                   <Text style={styles.totalScoreValue}>
-                    {Math.round(assessmentResults.reduce((sum, r) => sum + (r.score / 100) * r.points, 0))} / 40 points
+                    {calculateTotalScore(assessmentResults)} / 40 points
                   </Text>
                 </View>
               </View>
@@ -1840,7 +1972,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                 }
                 
                 const averageScore = totalItems > 0 ? Math.round(totalScore / totalItems) : 0;
-                const performedWell = averageScore >= 70;
+                const performedWell = averageScore >= PASS_THRESHOLD;
                 
                 return (
                   <>
@@ -1921,26 +2053,68 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             {/* Progress Bar - only show for normal content */}
             {!isAssessment && (
               <View style={styles.progressContainer}>
-                <View style={styles.progressTrack}>
-                  <View 
-                    style={[
-                      styles.progressFill, 
-                      { width: `${((currentIndex) / words.length) * 100}%` }
-                    ]} 
-                  />
+                {/* Counter + Segments + Content type pill in one card row */}
+                <View style={styles.progressCardRow}>
+                  <Text style={styles.progressCounter}>
+                    {currentIndex + 1} / {words.length}
+                  </Text>
+                  <View style={styles.segmentedBar}>
+                    {words.map((_, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.segmentDot,
+                          i < currentIndex && styles.segmentDotCompleted,
+                          i === currentIndex && styles.segmentDotActive,
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <View style={styles.contentTypePill}>
+                    <Text style={styles.contentTypePillText}>
+                      {currentContentType === 'sentences'
+                        ? 'Sentences'
+                        : currentContentType === 'paragraphs'
+                          ? 'Paragraphs'
+                          : 'Words'}
+                    </Text>
+                  </View>
                 </View>
-                <Text style={styles.progressText}>
-                  {Math.round(((currentIndex) / words.length) * 100)}% Complete
-                </Text>
               </View>
             )}
 
             {/* Macro Level Progress */}
             {!isAssessment && studentLevel && (
               <View style={styles.macroProgressContainer}>
-                <Text style={styles.macroProgressText}>
-                  Macro Level {currentMacroLevel} • {currentContentType.charAt(0).toUpperCase() + currentContentType.slice(1)}
-                </Text>
+                <Text style={styles.macroProgressLabel}>Macro Level {currentMacroLevel}</Text>
+                <View style={styles.macroStepRow}>
+                  {(['words', 'sentences', 'paragraphs'] as const).map((type, idx, arr) => {
+                    const labels = { words: 'W', sentences: 'S', paragraphs: 'P' };
+                    const isCompleted =
+                      arr.indexOf(currentContentType as typeof arr[number]) > idx;
+                    const isActive = currentContentType === type;
+                    return (
+                      <React.Fragment key={type}>
+                        <View style={[
+                          styles.macroStepChip,
+                          isActive && styles.macroStepChipActive,
+                          isCompleted && styles.macroStepChipDone,
+                        ]}>
+                          <Text style={[
+                            styles.macroStepChipText,
+                            isActive && styles.macroStepChipTextActive,
+                            isCompleted && styles.macroStepChipTextDone,
+                          ]}>
+                            {labels[type]}{isCompleted ? ' ✓' : ''}
+                          </Text>
+                        </View>
+                        {idx < arr.length - 1 && (
+                          <Text style={styles.macroStepArrow}>→</Text>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </View>
               </View>
             )}
 
@@ -1960,14 +2134,14 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                 : 'Pronounce this word:'}
             </Text>
             <View style={[
-              styles.wordCard, 
+              styles.wordCard,
               (currentAssessmentItem?.type === 'passage' || currentContentType === 'paragraphs') && styles.passageCard,
               currentContentType === 'sentences' && styles.sentenceCard
             ]}>
               {currentAssessmentItem?.type === 'passage' && currentAssessmentItem.title && (
                 <Text style={styles.passageTitle}>{currentAssessmentItem.title}</Text>
               )}
-              <ScrollView 
+              <ScrollView
                 style={currentContentType === 'paragraphs' ? styles.paragraphScrollContainer : null}
                 contentContainerStyle={currentContentType === 'paragraphs' ? styles.paragraphScrollContent : null}
                 showsVerticalScrollIndicator={currentContentType === 'paragraphs'}
@@ -1986,19 +2160,19 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             </View>
           </View>
 
-          {/* Mispronounced Words Section */}
-          {mispronounced.length > 0 && (
-            <View style={styles.mispronounedSection}>
-              <Text style={styles.mispronounedTitle}>Mispronounced words:</Text>
-              {mispronounced.map((w, i) => (
-                <WordFeedbackCard
-                  key={i}
-                  word={w.word}
-                  phonemes={w.phonemes}
-                  accuracyScore={w.accuracyScore}
-                />
-              ))}
-            </View>
+          {/* Mispronounced Words — open as animated bottom sheet */}
+          {mispronounced.length > 0 && completed && (
+            <TouchableOpacity
+              style={styles.viewFeedbackPill}
+              onPress={openMispronunciationModal}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="alert-circle" size={16} color="#FF5252" />
+              <Text style={styles.viewFeedbackPillText}>
+                {mispronounced.length} word{mispronounced.length > 1 ? 's' : ''} need review · Tap to see feedback
+              </Text>
+              <Ionicons name="chevron-up" size={14} color="#FF5252" />
+            </TouchableOpacity>
           )}
 
           {/* Recognition Result */}
@@ -2015,63 +2189,80 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                         : "Try again"}
                 </Text>
               </View>
-              
+
               <View style={styles.resultContent}>
                 {score !== null && (
                   <View style={styles.scoreContainer}>
-                    <Text style={styles.scoreLabel}>Accuracy Score</Text>
+                    {/* Large centered score number */}
+                    <Text style={[
+                      styles.scoreBigNumber,
+                      {
+                        color: score >= 70 ? '#4CAF50' : score >= 40 ? '#FF9800' : '#FF5722',
+                      }
+                    ]}>
+                      {score}%
+                    </Text>
+                    <Text style={styles.scoreAccuracyLabel}>Pronunciation Accuracy</Text>
+
+                    {/* Thicker rounded score bar */}
                     <View style={styles.scoreBar}>
                       <View
                         style={[
                           styles.scoreBarFill,
                           {
                             width: `${score}%`,
-                            backgroundColor: score >= 70 ? "#4CAF50" : score >= 40 ? "#FF9800" : "#FF5722"
+                            backgroundColor: score >= 70 ? '#4CAF50' : score >= 40 ? '#FF9800' : '#FF5722',
                           }
                         ]}
                       />
                     </View>
-                    <Text style={[
-                      styles.scoreText,
-                      ]}>
-                      {score}%
-                    </Text>
                   </View>
                 )}
 
                 {attempts.length > 0 && (
-                  <View style={{ marginTop: 12 }}>
-                    <Text style={[styles.scoreLabel, { marginBottom: 6 }]}>Attempt History</Text>
-                    {attempts.map((s, i) => (
-                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                        <Text style={{ color: '#374151', fontSize: 13, width: 80 }}>
-                          Attempt {i + 1}
-                        </Text>
-                        <View style={[styles.scoreBar, { flex: 1, height: 8 }]}>
-                          <View style={[
-                            styles.scoreBarFill,
+                  <View style={styles.attemptHistoryContainer}>
+                    <Text style={styles.attemptHistoryLabel}>Attempt History</Text>
+                    <View style={styles.attemptBadgeRow}>
+                      {attempts.map((s, i) => (
+                        <View
+                          key={i}
+                          style={[
+                            styles.attemptBadge,
                             {
-                              width: `${s}%`,
-                              height: 8,
-                              backgroundColor: s >= 70 ? '#4CAF50' : s >= 40 ? '#FF9800' : '#FF5722',
+                              backgroundColor:
+                                s >= 70
+                                  ? 'rgba(76, 175, 80, 0.12)'
+                                  : s >= 40
+                                    ? 'rgba(255, 152, 0, 0.12)'
+                                    : 'rgba(255, 87, 34, 0.12)',
+                              borderColor:
+                                s >= 70 ? '#4CAF50' : s >= 40 ? '#FF9800' : '#FF5722',
                             }
-                          ]} />
+                          ]}
+                        >
+                          <Text style={[
+                            styles.attemptBadgeText,
+                            {
+                              color: s >= 70 ? '#388E3C' : s >= 40 ? '#E65100' : '#D84315',
+                            }
+                          ]}>
+                            {s}%{i === attempts.length - 1 && allWordsGreen ? ' ✓' : ''}
+                          </Text>
                         </View>
-                        <Text style={{ color: '#374151', fontSize: 13, width: 42, textAlign: 'right' }}>
-                          {s}%{i === attempts.length - 1 && allWordsGreen ? ' ✓' : ''}
-                        </Text>
-                      </View>
-                    ))}
+                      ))}
+                    </View>
                   </View>
                 )}
               </View>
             </View>
           ) : (
             <View style={styles.instructionCard}>
-              <Ionicons name="mic-outline" size={48} color="#9CA3AF" />
+              <View style={styles.instructionIconWrapper}>
+                <Ionicons name="mic-outline" size={56} color={COLORS.primary} />
+              </View>
               <Text style={styles.instructionTitle}>Ready to practice?</Text>
               <Text style={styles.instructionText}>
-                {currentContentType === 'sentences' 
+                {currentContentType === 'sentences'
                   ? "Tap the microphone button below to start reading the sentence"
                   : currentContentType === 'paragraphs'
                     ? "Tap the microphone button below to start reading the paragraph"
@@ -2143,7 +2334,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                 </View>
               </LinearGradient>
             </TouchableOpacity>
-          ) : allWordsGreen ? (
+          ) : (isAssessment || allWordsGreen) ? (
             <TouchableOpacity
               style={styles.completedButton}
               onPress={handleProceed}
@@ -2283,6 +2474,78 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
             </View>
           </View>
         </Modal>
+
+        {/* Mispronunciation Feedback Bottom Sheet */}
+        <Modal
+          visible={showMispronunciationModal}
+          transparent
+          animationType="none"
+          onRequestClose={closeMispronunciationModal}
+        >
+          <TouchableOpacity
+            style={styles.mispronounceOverlay}
+            activeOpacity={1}
+            onPress={closeMispronunciationModal}
+          >
+            <Animated.View
+              style={[
+                styles.mispronounceSheet,
+                { transform: [{ translateY: mispronounceSlideAnim }] }
+              ]}
+            >
+              <TouchableOpacity activeOpacity={1}>
+                {/* Handle bar */}
+                <View style={styles.sheetHandleBar} />
+
+                {/* Header */}
+                <View style={styles.sheetHeader}>
+                  <View style={styles.sheetTitleRow}>
+                    <Ionicons name="alert-circle" size={20} color="#FF5252" />
+                    <Text style={styles.sheetTitle}>Words to Review</Text>
+                    <View style={styles.sheetBadge}>
+                      <Text style={styles.sheetBadgeText}>{mispronounced.length}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    onPress={closeMispronunciationModal}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Ionicons name="close-circle" size={26} color="#9CA3AF" />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.sheetSubtitle}>
+                  Tap the speaker icon on each word to hear the correct pronunciation
+                </Text>
+
+                {/* Word feedback cards */}
+                <ScrollView
+                  style={styles.sheetScrollView}
+                  contentContainerStyle={styles.sheetScrollContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {mispronounced.map((w, i) => (
+                    <WordFeedbackCard
+                      key={i}
+                      word={w.word}
+                      phonemes={w.phonemes}
+                      accuracyScore={w.accuracyScore}
+                    />
+                  ))}
+                </ScrollView>
+
+                {/* Close button */}
+                <TouchableOpacity
+                  style={styles.sheetCloseButton}
+                  onPress={closeMispronunciationModal}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.sheetCloseButtonText}>Got it, I'll try again</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            </Animated.View>
+          </TouchableOpacity>
+        </Modal>
     </ScreenLayout>
   );
 }
@@ -2343,9 +2606,65 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   progressContainer: {
-    marginBottom: SPACING.lg,
-    paddingHorizontal: SPACING.sm,
+    marginBottom: SPACING.md,
   },
+  progressCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: SPACING.md,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+    gap: SPACING.sm,
+  },
+  progressCounter: {
+    fontSize: FONT_SIZES.sm,
+    fontFamily: getFontFamily('bold'),
+    color: '#111827',
+    minWidth: 36,
+  },
+  segmentedBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flexWrap: 'nowrap',
+    overflow: 'hidden',
+  },
+  segmentDot: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#E5E7EB',
+    minWidth: 4,
+  },
+  segmentDotCompleted: {
+    backgroundColor: COLORS.primary,
+    opacity: 0.4,
+  },
+  segmentDotActive: {
+    backgroundColor: COLORS.primary,
+    opacity: 1,
+  },
+  contentTypePill: {
+    backgroundColor: 'rgba(140, 82, 255, 0.1)',
+    borderRadius: 20,
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+  },
+  contentTypePillText: {
+    fontSize: FONT_SIZES.xs,
+    fontFamily: getFontFamily('semibold'),
+    color: COLORS.primary,
+  },
+  // legacy — kept for safety, no longer rendered
   progressTrack: {
     height: 6,
     backgroundColor: "#E5E7EB",
@@ -2389,6 +2708,21 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
     flexDirection: "row",
     justifyContent: "center",
+    position: 'relative',
+  },
+  inCardSpeakerButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(140, 82, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(140, 82, 255, 0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
   },
   word: {
     fontSize: FONT_SIZES['4xl'],
@@ -2425,20 +2759,104 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     fontFamily: getFontFamily('medium'),
   },
-  mispronounedSection: {
-    backgroundColor: "rgba(255, 82, 82, 0.15)",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
+  // Pill button that opens the mispronunciation bottom sheet
+  viewFeedbackPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 82, 82, 0.1)',
     borderWidth: 1,
-    borderColor: "rgba(255, 82, 82, 0.3)",
-  },
-  mispronounedTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FF5252",
-    fontFamily: getFontFamily('semibold'),
+    borderColor: 'rgba(255, 82, 82, 0.35)',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
     marginBottom: 12,
+    alignSelf: 'center',
+  },
+  viewFeedbackPillText: {
+    fontSize: FONT_SIZES.sm,
+    color: '#FF5252',
+    fontFamily: getFontFamily('medium'),
+  },
+  // Bottom sheet overlay
+  mispronounceOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'flex-end',
+  },
+  mispronounceSheet: {
+    backgroundColor: '#1a1a2e',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+    maxHeight: '80%',
+  },
+  sheetHandleBar: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  sheetTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sheetTitle: {
+    fontSize: FONT_SIZES.xl,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: getFontFamily('bold'),
+  },
+  sheetBadge: {
+    backgroundColor: '#FF5252',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  sheetBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: getFontFamily('bold'),
+  },
+  sheetSubtitle: {
+    fontSize: FONT_SIZES.sm,
+    color: 'rgba(255,255,255,0.5)',
+    fontFamily: getFontFamily('regular'),
+    marginBottom: 16,
+  },
+  sheetScrollView: {
+    maxHeight: 380,
+  },
+  sheetScrollContent: {
+    paddingBottom: 8,
+  },
+  sheetCloseButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  sheetCloseButtonText: {
+    color: '#FFFFFF',
+    fontSize: FONT_SIZES.base,
+    fontWeight: '600',
+    fontFamily: getFontFamily('semibold'),
   },
   resultCard: {
     backgroundColor: "#F9FAFB",
@@ -2481,6 +2899,20 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
   },
+  scoreBigNumber: {
+    fontSize: 64,
+    fontFamily: getFontFamily('bold'),
+    lineHeight: 72,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  scoreAccuracyLabel: {
+    fontSize: FONT_SIZES.sm,
+    fontFamily: getFontFamily('regular'),
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginBottom: SPACING.md,
+  },
   scoreLabel: {
     fontSize: FONT_SIZES.lg,
     color: "#6B7280",
@@ -2489,20 +2921,47 @@ const styles = StyleSheet.create({
   },
   scoreBar: {
     width: "100%",
-    height: 8,
+    height: 12,
     backgroundColor: "#E5E7EB",
-    borderRadius: 4,
+    borderRadius: 6,
     overflow: "hidden",
     marginBottom: SPACING.sm,
   },
   scoreBarFill: {
     height: "100%",
-    borderRadius: 4,
+    borderRadius: 6,
   },
   scoreText: {
     fontSize: FONT_SIZES.xl,
     fontFamily: getFontFamily('regular'),
     color: "#111827",
+  },
+  attemptHistoryContainer: {
+    width: '100%',
+    marginTop: SPACING.md,
+  },
+  attemptHistoryLabel: {
+    fontSize: FONT_SIZES.sm,
+    fontFamily: getFontFamily('semibold'),
+    color: '#6B7280',
+    marginBottom: SPACING.sm,
+    textAlign: 'center',
+  },
+  attemptBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  attemptBadge: {
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  attemptBadgeText: {
+    fontSize: FONT_SIZES.sm,
+    fontFamily: getFontFamily('semibold'),
   },
   nextButton: {
     backgroundColor: COLORS.white,
@@ -2522,29 +2981,36 @@ const styles = StyleSheet.create({
     marginRight: SPACING.xs,
   },
   instructionCard: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: 16,
+    backgroundColor: 'rgba(140, 82, 255, 0.06)',
+    borderRadius: 20,
     padding: SPACING.xl,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: 'rgba(140, 82, 255, 0.15)',
     marginBottom: SPACING.lg,
+  },
+  instructionIconWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(140, 82, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.md,
   },
   instructionTitle: {
     fontSize: FONT_SIZES.xl,
-    fontWeight: "600",
+    fontFamily: getFontFamily('bold'),
     color: "#111827",
-    fontFamily: getFontFamily('semibold'),
-    marginTop: SPACING.md,
     marginBottom: SPACING.sm,
     textAlign: "center",
   },
   instructionText: {
-    fontSize: FONT_SIZES.base,
+    fontSize: FONT_SIZES.base + 1,
     color: "#6B7280",
     fontFamily: getFontFamily('regular'),
     textAlign: "center",
-    lineHeight: 22,
+    lineHeight: 24,
   },
   bottomContainer: {
     paddingTop: SPACING.md,
@@ -2859,12 +3325,68 @@ const styles = StyleSheet.create({
   },
   // Macro level progress styles
   macroProgressContainer: {
-    backgroundColor: "#F3F4F6",
-    borderRadius: 12,
-    padding: SPACING.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: SPACING.md,
     marginBottom: SPACING.md,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+    gap: SPACING.sm,
+    flexWrap: 'wrap',
+  },
+  macroProgressLabel: {
+    fontSize: FONT_SIZES.xs,
+    fontFamily: getFontFamily('semibold'),
+    color: '#6B7280',
+    marginRight: 2,
+  },
+  macroStepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  macroStepChip: {
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  macroStepChipActive: {
+    backgroundColor: 'rgba(140, 82, 255, 0.12)',
+    borderColor: COLORS.primary,
+  },
+  macroStepChipDone: {
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderColor: '#4CAF50',
+  },
+  macroStepChipText: {
+    fontSize: FONT_SIZES.xs,
+    fontFamily: getFontFamily('medium'),
+    color: '#9CA3AF',
+  },
+  macroStepChipTextActive: {
+    color: COLORS.primary,
+    fontFamily: getFontFamily('bold'),
+  },
+  macroStepChipTextDone: {
+    color: '#388E3C',
+    fontFamily: getFontFamily('semibold'),
+  },
+  macroStepArrow: {
+    fontSize: 11,
+    color: '#D1D5DB',
   },
   macroProgressText: {
     color: "#374151",

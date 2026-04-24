@@ -7,6 +7,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Modal,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,6 +33,13 @@ interface StudentData {
 interface StudentListProps {
   navigation: any;
 }
+
+const READER_LEVEL_COLORS: Record<number, { color: string; bg: string; label: string }> = {
+  1: { color: '#4CAF50', bg: '#E8F5E9', label: 'Foundation' },
+  2: { color: '#2196F3', bg: '#E3F2FD', label: 'Developing' },
+  3: { color: '#FF9800', bg: '#FFF3E0', label: 'Proficient' },
+  4: { color: '#9C27B0', bg: '#F3E5F5', label: 'Advanced' },
+};
 
 export default function StudentList({ navigation }: StudentListProps) {
   const [students, setStudents] = useState<StudentData[]>([]);
@@ -81,20 +89,16 @@ export default function StudentList({ navigation }: StudentListProps) {
       studentsList.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
       setStudents(studentsList);
     } catch (error) {
+      console.error('[StudentList] Failed to load student data:', error);
+      Alert.alert("Error", "Could not load student data. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const getLevelColor = (level: number) => {
-    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7'];
-    return colors[level - 1] || '#DDA0DD';
-  };
-
   const formatLastActivity = (date: Date) => {
     const now = new Date();
     const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
-    
     if (diffInHours < 1) return 'Just now';
     if (diffInHours < 24) return `${diffInHours}h ago`;
     const diffInDays = Math.floor(diffInHours / 24);
@@ -102,62 +106,11 @@ export default function StudentList({ navigation }: StudentListProps) {
     return date.toLocaleDateString();
   };
 
-  const StudentCard = ({ student }: { student: StudentData }) => (
-    <View style={styles.studentCard}>
-      <LinearGradient
-        colors={['#F9FAFB', '#F3F4F6']}
-        style={styles.studentCardGradient}
-      >
-        {/* Header */}
-        <View style={styles.studentHeader}>
-          <View style={styles.studentInfo}>
-            <View style={styles.studentAvatar}>
-              <Ionicons name="person" size={24} color="#374151" />
-            </View>
-            <View style={styles.studentDetails}>
-              <Text style={styles.studentName}>{student.name}</Text>
-              <Text style={styles.studentEmail}>{student.email}</Text>
-            </View>
-          </View>
-          <View style={styles.activityContainer}>
-            <Text style={styles.lastActivity}>{formatLastActivity(student.lastActivity)}</Text>
-            <View style={[styles.statusDot, { backgroundColor: student.assessmentCompleted ? '#4CAF50' : '#FF9800' }]} />
-          </View>
-        </View>
+  const getReaderInfo = (level: number) =>
+    READER_LEVEL_COLORS[level] || { color: '#9E9E9E', bg: '#F5F5F5', label: `Level ${level}` };
 
-        {/* Room Info */}
-        <View style={styles.roomContainer}>
-          <View style={styles.roomInfo}>
-            <Ionicons name="home-outline" size={16} color="#6B7280" />
-            <Text style={styles.roomText}>{student.roomName}</Text>
-          </View>
-          <View style={styles.roomCodeBadge}>
-            <Text style={styles.roomCodeText}>{student.roomCode}</Text>
-          </View>
-        </View>
-
-        {/* Levels */}
-        <View style={styles.levelsContainer}>
-          <View style={styles.levelCard}>
-            <Text style={styles.levelLabel}>Reader Level</Text>
-            <View style={[styles.levelBadge, { backgroundColor: getLevelColor(student.readerLevel) }]}>
-              <Text style={styles.levelValue}>{student.readerLevel}</Text>
-            </View>
-          </View>
-          
-          <View style={styles.levelDivider} />
-          
-          <View style={styles.levelCard}>
-            <Text style={styles.levelLabel}>Macro Level</Text>
-            <View style={[styles.levelBadge, { backgroundColor: '#9C27B0' }]}>
-              <Text style={styles.levelValue}>{student.macroLevel}</Text>
-            </View>
-            <Text style={styles.levelText}>Level {student.macroLevel}</Text>
-          </View>
-        </View>
-      </LinearGradient>
-    </View>
-  );
+  const getInitials = (name: string) =>
+    name.split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
 
   if (loading) {
     return (
@@ -171,174 +124,196 @@ export default function StudentList({ navigation }: StudentListProps) {
   }
 
   return (
-    <ScreenLayout>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#374151" />
-          </TouchableOpacity>
+    <ScreenLayout noPadding>
+      {/* Gradient Header */}
+      <LinearGradient colors={[COLORS.primary, COLORS.secondary]} style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={22} color="white" />
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
           <Text style={styles.title}>Active Students</Text>
-          <View style={styles.headerRight}>
-            <Text style={styles.studentCount}>{students.length}</Text>
-          </View>
+          <Text style={styles.subtitle}>{students.length} enrolled</Text>
         </View>
+        <View style={styles.countBadge}>
+          <Text style={styles.countText}>{students.length}</Text>
+        </View>
+      </LinearGradient>
 
-        {/* Content */}
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Table Header */}
-          <View style={styles.tableContainer}>
-            <View style={styles.tableHeader}>
-              <Text style={styles.headerText}>Name</Text>
-              <Text style={styles.headerText}>Room</Text>
-              <Text style={styles.headerText}>Reader Level</Text>
-              <Text style={styles.headerText}>Macro Level</Text>
-              <Text style={styles.headerText}>Actions</Text>
+      {/* Content */}
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {students.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <View style={styles.emptyIconContainer}>
+              <Ionicons name="people-outline" size={56} color="#9CA3AF" />
             </View>
-
-            {/* Table Content */}
-            {students.length === 0 ? (
-              <View style={styles.noDataRow}>
-                <Text style={styles.noDataText}>No active students</Text>
-              </View>
-            ) : (
-              <View style={styles.tableBody}>
-                {students.map((student) => (
-                  <View key={student.id} style={styles.tableRow}>
-                    <View style={styles.nameCell}>
-                      <Text style={styles.studentNameTable}>{student.name}</Text>
-                      <Text style={styles.studentEmailTable}>{student.email}</Text>
-                    </View>
-                    <View style={styles.roomCell}>
-                      <Text style={styles.roomNameTable}>{student.roomName}</Text>
-                      <Text style={styles.roomCodeTable}>{student.roomCode}</Text>
-                    </View>
-                    <View style={styles.levelCell}>
-                      <View>
-                        <Text style={styles.levelValueTable}>{student.readerLevel}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.levelCell}>
-                      <View>
-                        <Text style={styles.levelValueTable}>{student.macroLevel}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.actionCell}>
-                      <TouchableOpacity
-                        style={styles.viewButton}
-                        onPress={() => {
-                          setSelectedStudent(student);
-                          setShowDiagnosticModal(true);
-                        }}
-                      >
-                        <Ionicons name="eye-outline" size={18} color="white" />
-                        <Text style={styles.viewButtonText}>View</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
+            <Text style={styles.emptyTitle}>No Students Yet</Text>
+            <Text style={styles.emptySubtitle}>Students will appear here once they join your rooms</Text>
           </View>
-        </ScrollView>
+        ) : (
+          students.map((student) => {
+            const readerInfo = getReaderInfo(student.readerLevel);
+            return (
+              <View key={student.id} style={styles.studentCard}>
+                {/* Avatar + Name row */}
+                <View style={styles.cardTop}>
+                  <LinearGradient
+                    colors={[readerInfo.color, `${readerInfo.color}CC`]}
+                    style={styles.avatar}
+                  >
+                    <Text style={styles.avatarText}>{getInitials(student.name)}</Text>
+                  </LinearGradient>
 
-        {/* Diagnostic Review Modal */}
-        {selectedStudent && (
-          <Modal
-            visible={showDiagnosticModal}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setShowDiagnosticModal(false)}
-          >
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Diagnostic Report</Text>
-                  <TouchableOpacity onPress={() => setShowDiagnosticModal(false)}>
-                    <Ionicons name="close" size={24} color={COLORS.primary} />
-                  </TouchableOpacity>
+                  <View style={styles.studentInfo}>
+                    <Text style={styles.studentName} numberOfLines={1}>{student.name}</Text>
+                    <Text style={styles.studentEmail} numberOfLines={1}>{student.email}</Text>
+                  </View>
+
+                  <View style={styles.cardTopRight}>
+                    <Text style={styles.lastActivityText}>{formatLastActivity(student.lastActivity)}</Text>
+                    <View style={[
+                      styles.statusDot,
+                      { backgroundColor: student.assessmentCompleted ? '#4CAF50' : '#FF9800' }
+                    ]} />
+                  </View>
                 </View>
 
-                <ScrollView style={styles.modalBody}>
-                  {/* Student Info */}
-                  <View style={styles.studentInfoSection}>
-                    <View style={styles.studentAvatarLarge}>
-                      <Ionicons name="person" size={32} color={COLORS.primary} />
-                    </View>
-                    <Text style={styles.modalStudentName}>{selectedStudent.name}</Text>
-                    <Text style={styles.modalStudentEmail}>{selectedStudent.email}</Text>
+                {/* Room chip */}
+                <View style={styles.roomChip}>
+                  <Ionicons name="home-outline" size={14} color="#6B7280" />
+                  <Text style={styles.roomChipText} numberOfLines={1}>{student.roomName}</Text>
+                  <View style={styles.roomCodePill}>
+                    <Text style={styles.roomCodePillText}>{student.roomCode}</Text>
                   </View>
+                </View>
 
-                  {/* Reader Level Badge */}
-                  <View style={styles.modalLevelBadge}>
-                    <View style={[
-                      styles.modalLevelCircle,
-                      { backgroundColor: getLevelColor(selectedStudent.readerLevel) }
-                    ]}>
-                      <Text style={styles.modalLevelNumber}>{selectedStudent.readerLevel}</Text>
+                {/* Level badges + View button */}
+                <View style={styles.cardBottom}>
+                  <View style={styles.levelsRow}>
+                    <View style={[styles.levelPill, { backgroundColor: readerInfo.bg }]}>
+                      <Ionicons name="book-outline" size={13} color={readerInfo.color} />
+                      <Text style={[styles.levelPillText, { color: readerInfo.color }]}>
+                        {readerInfo.label}
+                      </Text>
                     </View>
-                    <Text style={styles.modalLevelText}>Reader Level {selectedStudent.readerLevel}</Text>
-                    <Text style={styles.modalMacroText}>Macro Level {selectedStudent.macroLevel}</Text>
-                  </View>
-
-                  {/* Diagnostic Recommendation */}
-                  <View style={styles.statsSection}>
-                    <View style={styles.statsSectionHeader}>
-                      <Ionicons name="medical" size={20} color={COLORS.primary} />
-                      <Text style={styles.statsSectionTitle}>Diagnostic Recommendation</Text>
-                    </View>
-                    <Text style={styles.recommendationText}>
-                      {calculateDiagnosticStats(selectedStudent).recommendation}
-                    </Text>
-                  </View>
-
-                  {/* Performance Stats */}
-                  <View style={styles.statsSection}>
-                    <View style={styles.statsSectionHeader}>
-                      <Ionicons name="stats-chart" size={20} color={COLORS.primary} />
-                      <Text style={styles.statsSectionTitle}>Performance Statistics</Text>
-                    </View>
-                    
-                    <View style={styles.statsGrid}>
-                      <View style={styles.statCard}>
-                        <Ionicons name="checkmark-circle" size={32} color="#52c41a" />
-                        <Text style={styles.statValue}>{calculateDiagnosticStats(selectedStudent).totalCorrect}</Text>
-                        <Text style={styles.statLabel}>Correct Words</Text>
-                      </View>
-                      <View style={styles.statCard}>
-                        <Ionicons name="close-circle" size={32} color="#f5222d" />
-                        <Text style={styles.statValue}>{calculateDiagnosticStats(selectedStudent).totalIncorrect}</Text>
-                        <Text style={styles.statLabel}>Incorrect Words</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.statsGrid}>
-                      <View style={styles.statCard}>
-                        <Ionicons name="list" size={32} color="#1890ff" />
-                        <Text style={styles.statValue}>{calculateDiagnosticStats(selectedStudent).totalAttempts}</Text>
-                        <Text style={styles.statLabel}>Total Pronounced</Text>
-                      </View>
-                      <View style={styles.statCard}>
-                        <Ionicons name="trophy" size={32} color="#faad14" />
-                        <Text style={styles.statValue}>{calculateDiagnosticStats(selectedStudent).averageScore}%</Text>
-                        <Text style={styles.statLabel}>Average Score</Text>
-                      </View>
+                    <View style={styles.macroLevelPill}>
+                      <Ionicons name="layers-outline" size={13} color="#6B7280" />
+                      <Text style={styles.macroLevelText}>Macro {student.macroLevel}</Text>
                     </View>
                   </View>
-                </ScrollView>
+                  <TouchableOpacity
+                    style={styles.viewButton}
+                    onPress={() => {
+                      setSelectedStudent(student);
+                      setShowDiagnosticModal(true);
+                    }}
+                  >
+                    <Ionicons name="eye-outline" size={16} color="white" />
+                    <Text style={styles.viewButtonText}>View</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })
+        )}
+      </ScrollView>
 
+      {/* Diagnostic Modal */}
+      {selectedStudent && (
+        <Modal
+          visible={showDiagnosticModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowDiagnosticModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              {/* Modal Handle */}
+              <View style={styles.modalHandle} />
+
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Diagnostic Report</Text>
                 <TouchableOpacity
-                  style={styles.modalCloseButton}
+                  style={styles.modalCloseIcon}
                   onPress={() => setShowDiagnosticModal(false)}
                 >
-                  <Text style={styles.modalCloseButtonText}>Close</Text>
+                  <Ionicons name="close" size={20} color="#6B7280" />
                 </TouchableOpacity>
               </View>
+
+              <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+                {/* Student profile */}
+                <View style={styles.modalProfile}>
+                  <LinearGradient
+                    colors={[getReaderInfo(selectedStudent.readerLevel).color, `${getReaderInfo(selectedStudent.readerLevel).color}CC`]}
+                    style={styles.modalAvatar}
+                  >
+                    <Text style={styles.modalAvatarText}>{getInitials(selectedStudent.name)}</Text>
+                  </LinearGradient>
+                  <Text style={styles.modalStudentName}>{selectedStudent.name}</Text>
+                  <Text style={styles.modalStudentEmail}>{selectedStudent.email}</Text>
+
+                  <View style={styles.modalLevelRow}>
+                    <View style={[styles.levelPill, { backgroundColor: getReaderInfo(selectedStudent.readerLevel).bg }]}>
+                      <Text style={[styles.levelPillText, { color: getReaderInfo(selectedStudent.readerLevel).color }]}>
+                        Reader Level {selectedStudent.readerLevel} — {getReaderInfo(selectedStudent.readerLevel).label}
+                      </Text>
+                    </View>
+                    <View style={styles.macroLevelPill}>
+                      <Text style={styles.macroLevelText}>Macro Level {selectedStudent.macroLevel}</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Performance stats */}
+                {(() => {
+                  const stats = calculateDiagnosticStats(selectedStudent);
+                  return (
+                    <>
+                      <View style={styles.statsGrid}>
+                        <View style={[styles.statBox, { borderTopColor: '#4CAF50' }]}>
+                          <Ionicons name="checkmark-circle" size={28} color="#4CAF50" />
+                          <Text style={styles.statBoxValue}>{stats.totalCorrect}</Text>
+                          <Text style={styles.statBoxLabel}>Correct</Text>
+                        </View>
+                        <View style={[styles.statBox, { borderTopColor: '#F44336' }]}>
+                          <Ionicons name="close-circle" size={28} color="#F44336" />
+                          <Text style={styles.statBoxValue}>{stats.totalIncorrect}</Text>
+                          <Text style={styles.statBoxLabel}>Incorrect</Text>
+                        </View>
+                        <View style={[styles.statBox, { borderTopColor: '#2196F3' }]}>
+                          <Ionicons name="list" size={28} color="#2196F3" />
+                          <Text style={styles.statBoxValue}>{stats.totalAttempts}</Text>
+                          <Text style={styles.statBoxLabel}>Attempts</Text>
+                        </View>
+                        <View style={[styles.statBox, { borderTopColor: '#FFD700' }]}>
+                          <Ionicons name="trophy" size={28} color="#FFD700" />
+                          <Text style={styles.statBoxValue}>{stats.averageScore}%</Text>
+                          <Text style={styles.statBoxLabel}>Avg Score</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.recommendationSection}>
+                        <View style={styles.recommendationHeader}>
+                          <Ionicons name="medical" size={18} color={COLORS.primary} />
+                          <Text style={styles.recommendationTitle}>Recommendation</Text>
+                        </View>
+                        <Text style={styles.recommendationText}>{stats.recommendation}</Text>
+                      </View>
+                    </>
+                  );
+                })()}
+              </ScrollView>
+
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => setShowDiagnosticModal(false)}
+              >
+                <Text style={styles.modalCloseButtonText}>Close Report</Text>
+              </TouchableOpacity>
             </View>
-          </Modal>
-        )}
+          </View>
+        </Modal>
+      )}
     </ScreenLayout>
   );
 }
@@ -349,7 +324,6 @@ const calculateDiagnosticStats = (student: StudentData) => {
   let totalScore = 0;
   let totalAttempts = 0;
 
-  // Aggregate from macro level progress
   if (student.macroLevelProgress) {
     Object.values(student.macroLevelProgress).forEach((macroLevel: any) => {
       ['words', 'sentences', 'paragraphs'].forEach((type) => {
@@ -365,7 +339,6 @@ const calculateDiagnosticStats = (student: StudentData) => {
     });
   }
 
-  // Also include current scores array
   if (student.scores && Array.isArray(student.scores)) {
     student.scores.forEach((score: number) => {
       totalAttempts++;
@@ -378,519 +351,400 @@ const calculateDiagnosticStats = (student: StudentData) => {
   const averageScore = totalAttempts > 0 ? Math.round(totalScore / totalAttempts) : 0;
   const accuracyRate = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
 
-  // Generate detailed diagnostic recommendation based on performance
   let recommendation = '';
-  
   if (totalAttempts === 0) {
     recommendation = 'This student has not started practicing yet. Encourage them to begin their pronunciation practice journey!';
   } else if (averageScore >= 90) {
-    recommendation = `Outstanding performance! The student's accuracy rate of ${accuracyRate}% shows excellent pronunciation skills. They've correctly pronounced ${totalCorrect} out of ${totalAttempts} items. Consider encouraging them to advance to the next reader level for more challenging content.`;
+    recommendation = `Outstanding performance! Accuracy rate of ${accuracyRate}%. Consider advancing to the next reader level.`;
   } else if (averageScore >= 80) {
-    recommendation = `Great work! The student is showing strong pronunciation skills with ${accuracyRate}% accuracy (${totalCorrect} correct out of ${totalAttempts}). To reach the next level:\n\n• Focus on clarity and enunciation for the ${totalIncorrect} items they missed\n• Practice at a steady pace - not too fast, not too slow\n• Continue building confidence with current content before advancing`;
+    recommendation = `Great work! Strong pronunciation skills at ${accuracyRate}% accuracy. Focus on clarity for the ${totalIncorrect} missed items.`;
   } else if (averageScore >= 70) {
-    recommendation = `Good progress! The student is on the right track with ${accuracyRate}% accuracy (${totalCorrect} correct, ${totalIncorrect} incorrect). Areas to improve:\n\n• Pronunciation Clarity: Focus on clear articulation of each word\n• Pacing: Speak at a comfortable speed that allows for proper enunciation\n• Practice: Review challenging words before recording\n• Confidence: Take time and speak with confidence`;
+    recommendation = `Good progress at ${accuracyRate}% accuracy. Focus on: pronunciation clarity, pacing, and reviewing challenging words before recording.`;
   } else if (averageScore >= 50) {
-    recommendation = `Needs more practice! Current accuracy is ${accuracyRate}% (${totalCorrect} correct, ${totalIncorrect} incorrect). Recommendations:\n\n• Slow Down: Take time to pronounce each word clearly\n• Listen First: Read the content aloud before recording\n• Articulation: Focus on moving lips and tongue properly\n• Environment: Practice in a quiet space for better recognition\n• Repetition: Practice difficult words multiple times`;
+    recommendation = `Needs more practice (${accuracyRate}% accuracy). Slow down, listen first, focus on articulation, and practice in a quiet environment.`;
   } else {
-    recommendation = `Significant improvement needed! Current accuracy: ${accuracyRate}% (${totalCorrect} correct, ${totalIncorrect} incorrect). Focus on these fundamentals:\n\n• Read Slowly: Take 2-3 seconds per word\n• Enunciate Clearly: Exaggerate mouth movements\n• Quiet Environment: Ensure minimal background noise\n• Pre-Reading: Practice reading aloud before recording\n• Break It Down: Focus on one word at a time\n• Phonetics: Pay attention to beginning and ending sounds\n\nConsider scheduling additional practice sessions with this student.`;
+    recommendation = `Significant improvement needed (${accuracyRate}% accuracy). Focus on reading slowly, enunciating clearly, and breaking words into syllables. Consider scheduling extra practice sessions.`;
   }
 
-  return {
-    totalCorrect,
-    totalIncorrect,
-    totalAttempts,
-    averageScore,
-    recommendation
-  };
+  return { totalCorrect, totalIncorrect, totalAttempts, averageScore, recommendation };
 };
 
 const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
+    paddingTop: 56,
+    paddingBottom: 20,
+    gap: 12,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerCenter: {
+    flex: 1,
   },
   title: {
     fontSize: 20,
-    fontFamily: getFontFamily('semibold'),
-    color: '#111827',
-    flex: 1,
-    textAlign: 'center',
-    marginHorizontal: 16,
-  },
-  headerRight: {
-    width: 40,
-    alignItems: 'center',
-  },
-  studentCount: {
-    fontSize: 16,
     fontFamily: getFontFamily('bold'),
-    color: '#111827',
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    minWidth: 32,
-    textAlign: 'center',
+    color: 'white',
+  },
+  subtitle: {
+    fontSize: 13,
+    fontFamily: getFontFamily('regular'),
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 2,
+  },
+  countBadge: {
+    minWidth: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  countText: {
+    fontSize: 15,
+    fontFamily: getFontFamily('bold'),
+    color: 'white',
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
   },
-  tableContainer: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 20,
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    backgroundColor: '#F3F4F6',
-    paddingVertical: 16,
+  scrollContent: {
     paddingHorizontal: 16,
-  },
-  headerText: {
-    flex: 1,
-    fontSize: 14,
-    fontFamily: getFontFamily('semibold'),
-    color: '#111827',
-    textAlign: 'center',
-  },
-  tableBody: {
-    gap: 1,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-  },
-  nameCell: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  roomCell: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  levelCell: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  actionCell: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  viewButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    gap: 4,
-  },
-  viewButtonText: {
-    fontSize: 12,
-    fontFamily: getFontFamily('semibold'),
-    color: 'white',
-  },
-  studentNameTable: {
-    fontSize: 14,
-    fontFamily: getFontFamily('medium'),
-    color: '#111827',
-    textAlign: 'center',
-  },
-  studentEmailTable: {
-    fontSize: 12,
-    fontFamily: getFontFamily('regular'),
-    color: '#6B7280',
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  roomNameTable: {
-    fontSize: 14,
-    fontFamily: getFontFamily('medium'),
-    color: '#111827',
-    textAlign: 'center',
-  },
-  roomCodeTable: {
-    fontSize: 12,
-    fontFamily: getFontFamily('regular'),
-    color: '#6B7280',
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  levelBadgeTable: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
-  levelValueTable: {
-    fontSize: 14,
-    fontFamily: getFontFamily('bold'),
-    color: '#111827',
-  },
-  levelTextTable: {
-    fontSize: 10,
-    fontFamily: getFontFamily('regular'),
-    color: '#6B7280',
-    textAlign: 'center',
-  },
-  noDataRow: {
-    paddingVertical: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F9FAFB',
-  },
-  noDataText: {
-    fontSize: 16,
-    fontFamily: getFontFamily('medium'),
-    color: '#6B7280',
-    textAlign: 'center',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    fontFamily: getFontFamily('medium'),
-    color: '#374151',
-    marginTop: 16,
-  },
-  studentsContainer: {
-    gap: 16,
-    paddingBottom: 20,
+    paddingTop: 16,
+    paddingBottom: 32,
+    gap: 12,
   },
   studentCard: {
-    borderRadius: 20,
-    overflow: 'hidden',
+    backgroundColor: 'white',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+    gap: 12,
   },
-  studentCardGradient: {
-    padding: 20,
-  },
-  studentHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  studentInfo: {
+  cardTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    gap: 12,
   },
-  studentAvatar: {
+  avatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    flexShrink: 0,
   },
-  studentDetails: {
+  avatarText: {
+    fontSize: 18,
+    fontFamily: getFontFamily('bold'),
+    color: 'white',
+  },
+  studentInfo: {
     flex: 1,
   },
   studentName: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: getFontFamily('semibold'),
     color: '#111827',
     marginBottom: 2,
   },
   studentEmail: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: getFontFamily('regular'),
     color: '#6B7280',
   },
-  activityContainer: {
+  cardTopRight: {
     alignItems: 'flex-end',
+    gap: 6,
   },
-  lastActivity: {
+  lastActivityText: {
     fontSize: 12,
     fontFamily: getFontFamily('regular'),
     color: '#9CA3AF',
-    marginBottom: 4,
   },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
   },
-  roomContainer: {
+  roomChip: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    gap: 6,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
   },
-  roomInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  roomChipText: {
     flex: 1,
-  },
-  roomText: {
-    fontSize: 14,
-    fontFamily: getFontFamily('medium'),
-    color: '#111827',
-    marginLeft: 6,
-  },
-  roomCodeBadge: {
-    backgroundColor: '#E5E7EB',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  roomCodeText: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: getFontFamily('medium'),
     color: '#374151',
   },
-  levelsContainer: {
+  roomCodePill: {
+    backgroundColor: '#E5E7EB',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  roomCodePillText: {
+    fontSize: 11,
+    fontFamily: getFontFamily('semibold'),
+    color: '#374151',
+    letterSpacing: 0.5,
+  },
+  cardBottom: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  levelCard: {
+  levelsRow: {
+    flexDirection: 'row',
+    gap: 8,
     flex: 1,
+    flexWrap: 'wrap',
+  },
+  levelPill: {
+    flexDirection: 'row',
     alignItems: 'center',
-  },
-  levelLabel: {
-    fontSize: 12,
-    fontFamily: getFontFamily('regular'),
-    color: '#6B7280',
-    marginBottom: 8,
-  },
-  levelBadge: {
-    width: 40,
-    height: 40,
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
   },
-  levelValue: {
-    fontSize: 18,
-    fontFamily: getFontFamily('bold'),
+  levelPillText: {
+    fontSize: 12,
+    fontFamily: getFontFamily('semibold'),
+  },
+  macroLevelPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
+  macroLevelText: {
+    fontSize: 12,
+    fontFamily: getFontFamily('semibold'),
+    color: '#6B7280',
+  },
+  viewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    gap: 5,
+    flexShrink: 0,
+  },
+  viewButtonText: {
+    fontSize: 13,
+    fontFamily: getFontFamily('semibold'),
     color: 'white',
   },
-  levelText: {
-    fontSize: 12,
-    fontFamily: getFontFamily('medium'),
-    color: '#6B7280',
-    textAlign: 'center',
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
   },
-  levelDivider: {
-    width: 1,
-    height: 60,
-    backgroundColor: '#E5E7EB',
-    marginHorizontal: 16,
+  loadingText: {
+    fontSize: 15,
+    fontFamily: getFontFamily('medium'),
+    color: '#374151',
   },
   emptyContainer: {
-    flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
     paddingVertical: 60,
   },
   emptyIconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   emptyTitle: {
-    fontSize: 24,
-    fontFamily: getFontFamily('semibold'),
+    fontSize: 20,
+    fontFamily: getFontFamily('bold'),
     color: '#111827',
-    marginBottom: 12,
-    textAlign: 'center',
+    marginBottom: 8,
   },
   emptySubtitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontFamily: getFontFamily('regular'),
     color: '#6B7280',
     textAlign: 'center',
-    lineHeight: 24,
     paddingHorizontal: 40,
   },
-  // Modal Styles
+  // Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: 'white',
-    borderRadius: 20,
-    width: '100%',
-    maxWidth: 500,
-    maxHeight: '80%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 10,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: '85%',
+    paddingBottom: 24,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 4,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#F3F4F6',
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: getFontFamily('bold'),
-    color: COLORS.primary,
+    color: '#111827',
   },
-  modalBody: {
-    maxHeight: 450,
-    padding: 20,
-  },
-  studentInfoSection: {
-    alignItems: 'center',
-    marginBottom: 20,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  studentAvatarLarge: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#f0f0f0',
+  modalCloseIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
   },
-  modalStudentName: {
-    fontSize: 22,
-    fontFamily: getFontFamily('bold'),
-    color: '#333',
-    marginBottom: 4,
+  modalBody: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
   },
-  modalStudentEmail: {
-    fontSize: 14,
-    fontFamily: getFontFamily('regular'),
-    color: '#666',
-  },
-  modalLevelBadge: {
+  modalProfile: {
     alignItems: 'center',
-    marginBottom: 24,
-    padding: 16,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    marginBottom: 20,
+    gap: 6,
   },
-  modalLevelCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+  modalAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
   },
-  modalLevelNumber: {
-    fontSize: 28,
+  modalAvatarText: {
+    fontSize: 26,
     fontFamily: getFontFamily('bold'),
     color: 'white',
   },
-  modalLevelText: {
-    fontSize: 16,
-    fontFamily: getFontFamily('semibold'),
-    color: '#333',
-    marginBottom: 4,
+  modalStudentName: {
+    fontSize: 20,
+    fontFamily: getFontFamily('bold'),
+    color: '#111827',
   },
-  modalMacroText: {
+  modalStudentEmail: {
     fontSize: 14,
-    fontFamily: getFontFamily('medium'),
-    color: '#666',
+    fontFamily: getFontFamily('regular'),
+    color: '#6B7280',
   },
-  statsSection: {
+  modalLevelRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 6,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 20,
+  },
+  statBox: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 14,
+    padding: 16,
+    alignItems: 'center',
+    gap: 6,
+    borderTopWidth: 3,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  statBoxValue: {
+    fontSize: 22,
+    fontFamily: getFontFamily('bold'),
+    color: '#111827',
+  },
+  statBoxLabel: {
+    fontSize: 12,
+    fontFamily: getFontFamily('regular'),
+    color: '#6B7280',
+  },
+  recommendationSection: {
     marginBottom: 24,
   },
-  statsSectionHeader: {
+  recommendationHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
     gap: 8,
+    marginBottom: 10,
   },
-  statsSectionTitle: {
+  recommendationTitle: {
     fontSize: 16,
     fontFamily: getFontFamily('semibold'),
-    color: '#333',
+    color: '#111827',
   },
   recommendationText: {
     fontSize: 14,
     fontFamily: getFontFamily('regular'),
-    color: '#555',
+    color: '#374151',
     lineHeight: 22,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#F9FAFB',
     padding: 16,
     borderRadius: 12,
     borderLeftWidth: 4,
     borderLeftColor: COLORS.primary,
   },
-  statsGrid: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 12,
-  },
-  statCard: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    gap: 8,
-  },
-  statValue: {
-    fontSize: 24,
-    fontFamily: getFontFamily('bold'),
-    color: '#333',
-  },
-  statLabel: {
-    fontSize: 12,
-    fontFamily: getFontFamily('regular'),
-    color: '#666',
-    textAlign: 'center',
-  },
   modalCloseButton: {
     backgroundColor: COLORS.primary,
-    padding: 16,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    marginHorizontal: 20,
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   modalCloseButtonText: {
     fontSize: 16,

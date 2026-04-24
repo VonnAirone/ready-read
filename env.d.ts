@@ -5,4 +5,6 @@ declare module "@env" {
   export const SUPABASE_ANON_KEY: string;
   export const AZURE_SPEECH_KEY: string;
   export const AZURE_SPEECH_REGION: string;
+  /** Backend proxy URL for web builds — routes Azure Speech calls server-side so the key stays out of the browser bundle. */
+  export const AZURE_PROXY_URL: string;
 }

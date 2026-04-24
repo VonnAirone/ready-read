@@ -88,7 +88,7 @@ export class SpeechRecognitionService {
     const transcribedWords = transcribed.toLowerCase().split(/\s+/).map(normalize);
     const matched = keywords.filter(kw => {
       const normalized = normalize(kw);
-      return transcribedWords.some(w => this.wordSimilarity(w, normalized) >= 0.70);
+      return transcribedWords.some(w => this.wordSimilarity(w, normalized) >= 0.80);
     });
     return (matched.length / keywords.length) * 100;
   }
@@ -103,7 +103,7 @@ export class SpeechRecognitionService {
       return this.lastWordResults.map(w => ({
         expected: w.word,
         spoken: w.errorType === 'None' ? w.word : null,
-        isCorrect: w.accuracyScore >= 70 && w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission',
+        isCorrect: w.accuracyScore >= 80 && w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission',
         similarity: w.accuracyScore / 100,
         phonemes: w.phonemes,
       }));
@@ -122,7 +122,7 @@ export class SpeechRecognitionService {
         return { expected, spoken: null, isCorrect: false, similarity: 0 };
       }
       const sim = this.wordSimilarity(expected, spoken);
-      return { expected, spoken, isCorrect: sim >= 0.70, similarity: sim };
+      return { expected, spoken, isCorrect: sim >= 0.80, similarity: sim };
     });
   }
 

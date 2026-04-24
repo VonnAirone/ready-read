@@ -47,7 +47,9 @@ export default function SetupPlayerProfile({ navigation }: any) {
             }, 1000);
             return;
           }
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[SetupPlayerProfile] failed to check existing player name:', err);
+        }
 
         setLoading(false);
       } else {

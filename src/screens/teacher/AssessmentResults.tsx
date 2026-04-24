@@ -6,12 +6,17 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase, auth } from '../../services/supabase';
 import { COLORS } from '../../constants/theme';
 import { ScreenLayout } from '../../components/ScreenLayout';
 import { getFontFamily } from '../../../styles/fonts';
+
+const { width } = Dimensions.get('window');
+const STAT_CARD_WIDTH = (width - 52) / 2;
 
 interface AssessmentData {
   id: string;
@@ -90,7 +95,12 @@ export default function AssessmentResults({ navigation }: AssessmentResultsProps
 
       assessmentsList.sort((a, b) => b.assessmentScore - a.assessmentScore);
       const averageScore = assessmentsList.length > 0 ? Math.round(totalScore / assessmentsList.length) : 0;
-      setStats({ totalAssessments: assessmentsList.length, averageScore, highestScore: assessmentsList.length > 0 ? highestScore : 0, lowestScore: assessmentsList.length > 0 ? lowestScore : 0 });
+      setStats({
+        totalAssessments: assessmentsList.length,
+        averageScore,
+        highestScore: assessmentsList.length > 0 ? highestScore : 0,
+        lowestScore: assessmentsList.length > 0 ? lowestScore : 0,
+      });
       setAssessments(assessmentsList);
     } catch (error) {
       console.error('AssessmentResults: failed to load results', error);
@@ -107,23 +117,31 @@ export default function AssessmentResults({ navigation }: AssessmentResultsProps
     return '#F44336';
   };
 
-  const getReaderLevelColor = (level: number) => {
-    const colors = {
-      1: '#4CAF50',
-      2: '#2196F3',
-      3: '#FF9800',
-      4: '#9C27B0',
-    };
-    return colors[level as keyof typeof colors] || '#666';
+  const getScoreLabel = (score: number) => {
+    if (score >= 90) return 'Excellent';
+    if (score >= 80) return 'Great';
+    if (score >= 70) return 'Good';
+    if (score >= 60) return 'Fair';
+    return 'Needs Work';
   };
 
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+  const getReaderLevelColor = (level: number) => {
+    const colors: Record<number, string> = { 1: '#4CAF50', 2: '#2196F3', 3: '#FF9800', 4: '#9C27B0' };
+    return colors[level] || '#9E9E9E';
   };
+
+  const getReaderLevelLabel = (level: number) => {
+    const labels: Record<number, string> = { 1: 'Foundation', 2: 'Developing', 3: 'Proficient', 4: 'Advanced' };
+    return labels[level] || `L${level}`;
+  };
+
+  const formatDate = (date: Date) =>
+    date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+  const getInitials = (name: string) =>
+    name.split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
+
+  const RANK_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
 
   if (loading) {
     return (
@@ -137,105 +155,107 @@ export default function AssessmentResults({ navigation }: AssessmentResultsProps
   }
 
   return (
-    <ScreenLayout>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#374151" />
-          </TouchableOpacity>
+    <ScreenLayout noPadding>
+      {/* Gradient Header */}
+      <LinearGradient colors={[COLORS.primary, COLORS.secondary]} style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={22} color="white" />
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
           <Text style={styles.title}>Assessment Results</Text>
-          <View style={styles.headerRight}>
-            <Text style={styles.studentCount}>{assessments.length}</Text>
+          <Text style={styles.subtitle}>{assessments.length} completed</Text>
+        </View>
+        <View style={styles.countBadge}>
+          <Text style={styles.countText}>{assessments.length}</Text>
+        </View>
+      </LinearGradient>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {/* 2×2 Stats Grid */}
+        <View style={styles.statsGrid}>
+          <View style={styles.statCard}>
+            <View style={[styles.statIconWrap, { backgroundColor: '#E8F5E9' }]}>
+              <Ionicons name="clipboard-outline" size={22} color="#4CAF50" />
+            </View>
+            <Text style={styles.statValue}>{stats.totalAssessments}</Text>
+            <Text style={styles.statLabel}>Total</Text>
+          </View>
+          <View style={styles.statCard}>
+            <View style={[styles.statIconWrap, { backgroundColor: '#E3F2FD' }]}>
+              <Ionicons name="trending-up-outline" size={22} color="#2196F3" />
+            </View>
+            <Text style={styles.statValue}>{stats.averageScore}%</Text>
+            <Text style={styles.statLabel}>Average</Text>
+          </View>
+          <View style={styles.statCard}>
+            <View style={[styles.statIconWrap, { backgroundColor: '#FFFDE7' }]}>
+              <Ionicons name="trophy-outline" size={22} color="#FFD700" />
+            </View>
+            <Text style={styles.statValue}>{stats.highestScore}%</Text>
+            <Text style={styles.statLabel}>Highest</Text>
+          </View>
+          <View style={styles.statCard}>
+            <View style={[styles.statIconWrap, { backgroundColor: '#FFF3E0' }]}>
+              <Ionicons name="speedometer-outline" size={22} color="#FF9800" />
+            </View>
+            <Text style={styles.statValue}>{stats.lowestScore}%</Text>
+            <Text style={styles.statLabel}>Lowest</Text>
           </View>
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Stats Overview */}
-          <View style={styles.statsContainer}>
-            <View style={styles.statCard}>
-              <Ionicons name="clipboard-outline" size={24} color="#4CAF50" />
-              <Text style={styles.statValue}>{stats.totalAssessments}</Text>
-              <Text style={styles.statLabel}>Total</Text>
+        {/* Results List */}
+        <Text style={styles.sectionTitle}>Student Rankings</Text>
+        {assessments.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="clipboard-outline" size={56} color="#9CA3AF" />
             </View>
-            <View style={styles.statCard}>
-              <Ionicons name="trending-up-outline" size={24} color="#2196F3" />
-              <Text style={styles.statValue}>{stats.averageScore}%</Text>
-              <Text style={styles.statLabel}>Average</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Ionicons name="trophy-outline" size={24} color="#FFD700" />
-              <Text style={styles.statValue}>{stats.highestScore}%</Text>
-              <Text style={styles.statLabel}>Highest</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Ionicons name="speedometer-outline" size={24} color="#FF9800" />
-              <Text style={styles.statValue}>{stats.lowestScore}%</Text>
-              <Text style={styles.statLabel}>Lowest</Text>
-            </View>
+            <Text style={styles.emptyTitle}>No Assessments Yet</Text>
+            <Text style={styles.emptySubtitle}>Students will appear here once they complete their assessments</Text>
           </View>
+        ) : (
+          <View style={styles.resultsList}>
+            {assessments.map((assessment, index) => {
+              const scoreColor = getScoreColor(assessment.assessmentScore);
+              const rankColor = RANK_COLORS[index] || '#9CA3AF';
+              const isTopThree = index < 3;
 
-          {/* Table */}
-          <View style={styles.tableContainer}>
-            <View style={styles.tableHeader}>
-              <Text style={[styles.headerText, { flex: 1.5 }]}>Student</Text>
-              <Text style={styles.headerText}>Score</Text>
-              <Text style={styles.headerText}>Level</Text>
-              <Text style={styles.headerText}>Date</Text>
-            </View>
+              return (
+                <View key={assessment.id} style={[styles.resultCard, isTopThree && { borderColor: `${rankColor}50` }]}>
+                  {/* Rank + Avatar + Name */}
+                  <View style={styles.resultLeft}>
+                    <View style={[styles.rankBadge, { backgroundColor: isTopThree ? rankColor : '#F3F4F6' }]}>
+                      <Text style={[styles.rankText, { color: isTopThree ? 'white' : '#6B7280' }]}>
+                        #{index + 1}
+                      </Text>
+                    </View>
 
-            {assessments.length === 0 ? (
-              <View style={styles.noDataRow}>
-                <Ionicons name="clipboard-outline" size={60} color="#D1D5DB" />
-                <Text style={styles.noDataText}>No completed assessments yet</Text>
-                <Text style={styles.noDataSubtext}>
-                  Students will appear here once they complete their assessments
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.tableBody}>
-                {assessments.map((assessment, index) => (
-                  <View key={assessment.id} style={styles.tableRow}>
-                    <View style={[styles.nameCell, { flex: 1.5 }]}>
-                      <View style={styles.rankBadge}>
-                        <Text style={styles.rankText}>#{index + 1}</Text>
-                      </View>
-                      <View style={styles.studentDetails}>
-                        <Text style={styles.studentNameTable} numberOfLines={1}>
-                          {assessment.name}
-                        </Text>
-                        <Text style={styles.roomNameSmall} numberOfLines={1}>
-                          {assessment.roomName}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.scoreCell}>
-                      <View style={[
-                        styles.scoreBadge,
-                        { backgroundColor: getScoreColor(assessment.assessmentScore) }
-                      ]}>
-                        <Text style={styles.scoreText}>{assessment.assessmentScore}%</Text>
-                      </View>
-                    </View>
-                    <View style={styles.levelCell}>
-                      <View style={[
-                        styles.levelBadge,
-                        { backgroundColor: getReaderLevelColor(assessment.readerLevel) }
-                      ]}>
-                        <Text style={styles.levelText}>{assessment.readerLevel}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.dateCell}>
-                      <Text style={styles.dateText}>{formatDate(assessment.assessmentDate)}</Text>
+                    <LinearGradient
+                      colors={[scoreColor, `${scoreColor}CC`]}
+                      style={styles.resultAvatar}
+                    >
+                      <Text style={styles.resultAvatarText}>{getInitials(assessment.name)}</Text>
+                    </LinearGradient>
+
+                    <View style={styles.resultNameBlock}>
+                      <Text style={styles.resultName} numberOfLines={1}>{assessment.name}</Text>
+                      <Text style={styles.resultRoom} numberOfLines={1}>{assessment.roomName}</Text>
                     </View>
                   </View>
-                ))}
-              </View>
-            )}
+
+                  {/* Score + Meta */}
+                  <View style={styles.resultRight}>
+                    <View style={[styles.scoreBadge, { backgroundColor: scoreColor }]}>
+                      <Text style={styles.scoreText}>{assessment.assessmentScore}%</Text>
+                    </View>
+                    <Text style={[styles.scoreLabel, { color: scoreColor }]}>{getScoreLabel(assessment.assessmentScore)}</Text>
+                  </View>
+                </View>
+              );
+            })}
           </View>
-        </ScrollView>
+        )}
+      </ScrollView>
     </ScreenLayout>
   );
 }
@@ -244,141 +264,171 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
+    paddingTop: 56,
+    paddingBottom: 20,
+    gap: 12,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerCenter: {
+    flex: 1,
+  },
   title: {
     fontSize: 20,
-    fontFamily: getFontFamily('semibold'),
-    color: '#111827',
-    flex: 1,
-    textAlign: 'center',
-    marginHorizontal: 16,
-  },
-  headerRight: {
-    width: 40,
-    alignItems: 'center',
-  },
-  studentCount: {
-    fontSize: 16,
     fontFamily: getFontFamily('bold'),
-    color: '#111827',
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    minWidth: 32,
-    textAlign: 'center',
+    color: 'white',
   },
-  content: {
-    flex: 1,
+  subtitle: {
+    fontSize: 13,
+    fontFamily: getFontFamily('regular'),
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 2,
   },
-  statsContainer: {
+  countBadge: {
+    minWidth: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  countText: {
+    fontSize: 15,
+    fontFamily: getFontFamily('bold'),
+    color: 'white',
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 40,
+  },
+  statsGrid: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginBottom: 20,
+    flexWrap: 'wrap',
     gap: 12,
+    marginBottom: 28,
   },
   statCard: {
-    flex: 1,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 16,
+    width: STAT_CARD_WIDTH,
+    backgroundColor: 'white',
+    borderRadius: 18,
     padding: 16,
     alignItems: 'center',
     gap: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  statIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 24,
     fontFamily: getFontFamily('bold'),
     color: '#111827',
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: getFontFamily('regular'),
     color: '#6B7280',
   },
-  tableContainer: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginHorizontal: 20,
-    marginBottom: 20,
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    backgroundColor: '#F3F4F6',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-  },
-  headerText: {
-    flex: 1,
-    fontSize: 14,
+  sectionTitle: {
+    fontSize: 18,
     fontFamily: getFontFamily('semibold'),
     color: '#111827',
-    textAlign: 'center',
+    marginBottom: 16,
   },
-  tableBody: {
-    gap: 1,
+  resultsList: {
+    gap: 10,
   },
-  tableRow: {
+  resultCard: {
     flexDirection: 'row',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
     alignItems: 'center',
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  nameCell: {
+  resultLeft: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+    minWidth: 0,
   },
   rankBadge: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   rankText: {
     fontSize: 12,
     fontFamily: getFontFamily('bold'),
-    color: '#374151',
   },
-  studentDetails: {
+  resultAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  resultAvatarText: {
+    fontSize: 15,
+    fontFamily: getFontFamily('bold'),
+    color: 'white',
+  },
+  resultNameBlock: {
     flex: 1,
+    minWidth: 0,
   },
-  studentNameTable: {
+  resultName: {
     fontSize: 14,
-    fontFamily: getFontFamily('medium'),
+    fontFamily: getFontFamily('semibold'),
     color: '#111827',
+    marginBottom: 2,
   },
-  roomNameSmall: {
-    fontSize: 11,
+  resultRoom: {
+    fontSize: 12,
     fontFamily: getFontFamily('regular'),
     color: '#9CA3AF',
-    marginTop: 2,
   },
-  scoreCell: {
-    flex: 1,
+  resultRight: {
     alignItems: 'center',
+    gap: 4,
+    flexShrink: 0,
+    paddingLeft: 8,
   },
   scoreBadge: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
-    minWidth: 60,
+    minWidth: 58,
     alignItems: 'center',
   },
   scoreText: {
@@ -386,60 +436,45 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily('bold'),
     color: 'white',
   },
-  levelCell: {
-    flex: 1,
+  scoreLabel: {
+    fontSize: 11,
+    fontFamily: getFontFamily('semibold'),
+  },
+  emptyContainer: {
     alignItems: 'center',
-  },
-  levelBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  levelText: {
-    fontSize: 14,
-    fontFamily: getFontFamily('bold'),
-    color: 'white',
-  },
-  dateCell: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  dateText: {
-    fontSize: 12,
-    fontFamily: getFontFamily('regular'),
-    color: '#6B7280',
-  },
-  noDataRow: {
     paddingVertical: 60,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F9FAFB',
     gap: 12,
   },
-  noDataText: {
-    fontSize: 16,
-    fontFamily: getFontFamily('semibold'),
-    color: '#374151',
-    textAlign: 'center',
+  emptyIconWrap: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  noDataSubtext: {
+  emptyTitle: {
+    fontSize: 20,
+    fontFamily: getFontFamily('bold'),
+    color: '#111827',
+  },
+  emptySubtitle: {
     fontSize: 14,
     fontFamily: getFontFamily('regular'),
-    color: '#9CA3AF',
+    color: '#6B7280',
     textAlign: 'center',
     paddingHorizontal: 40,
+    lineHeight: 22,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 16,
   },
   loadingText: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: getFontFamily('medium'),
     color: '#374151',
-    marginTop: 16,
   },
 });

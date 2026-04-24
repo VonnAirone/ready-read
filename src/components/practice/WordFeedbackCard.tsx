@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
+import { Audio } from 'expo-av';
 import { COLORS } from '../../constants/theme';
 import { getFontFamily } from '../../../styles/fonts';
 import { getPronunciation } from '../../utils/pronunciationUtils';
@@ -41,7 +42,7 @@ export function WordFeedbackCard({ word, phonemes, accuracyScore }: WordFeedback
   // Phonemes that scored below 70 — these are the sounds the student got wrong
   const badPhonemes = phonemes?.filter(p => p.accuracyScore < 70) ?? [];
 
-  const handlePlay = useCallback(() => {
+  const handlePlay = useCallback(async () => {
     if (isPlaying) return;
 
     // Brief press animation
@@ -52,10 +53,24 @@ export function WordFeedbackCard({ word, phonemes, accuracyScore }: WordFeedback
 
     setIsPlaying(true);
     try { Speech.stop(); } catch { /* ignore: nothing playing on Android */ }
+
+    // Force speaker output before every TTS call — recording mode leaves iOS
+    // audio routed through the earpiece (very quiet) until explicitly reset.
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+      });
+    } catch (err) { console.warn('[WordFeedbackCard] audio mode setup failed:', err); }
+
     Speech.speak(word, {
-      language: 'en-PH',
+      language: 'en-US',
       pitch: 1.0,
       rate: 0.72,
+      volume: 1.0,
       onDone: () => setIsPlaying(false),
       onStopped: () => setIsPlaying(false),
       onError: () => setIsPlaying(false),

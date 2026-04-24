@@ -43,10 +43,14 @@ const STT_ENDPOINT = (region: string) =>
 export class AzureSpeechService {
   private key: string;
   private region: string;
+  // When set, audio is forwarded to this backend proxy instead of Azure directly.
+  // Use this on web so the Azure key is never exposed in the browser bundle.
+  private proxyUrl: string | null;
 
-  constructor(key: string, region: string) {
+  constructor(key: string, region: string, proxyUrl?: string) {
     this.key = key;
     this.region = region;
+    this.proxyUrl = proxyUrl ?? null;
   }
 
   /**
@@ -54,24 +58,31 @@ export class AzureSpeechService {
    * Returns per-word accuracy scores and an overall pronunciation score.
    */
   async assessPronunciation(audioUri: string, referenceText: string): Promise<AzurePronunciationResult> {
-    // Azure requires the pronunciation assessment config as base64-encoded JSON
-    const configJson = JSON.stringify({
-      ReferenceText: referenceText,
-      GradingSystem: 'HundredMark',
-      Granularity: 'Phoneme',
-      Dimension: 'Comprehensive',
-      EnableMiscue: 'True', // Must be string, not boolean
-    });
-    // btoa is polyfilled in React Native / Hermes via Expo SDK 51+
-    const assessmentConfig = btoa(unescape(encodeURIComponent(configJson)));
+    let data: any;
 
-    const audioBlob = await this.readAudioBlob(audioUri);
-    const contentType = this.getAudioContentType(audioUri);
-
-
-    const response = await this.makeRequestWithRetry(
-      STT_ENDPOINT(this.region),
-      {
+    if (this.proxyUrl !== null) {
+      const audioBlob = await this.readAudioBlob(audioUri);
+      const form = new FormData();
+      form.append('audio', audioBlob, 'recording.webm');
+      form.append('referenceText', referenceText);
+      const response = await this.makeRequestWithRetry(`${this.proxyUrl}/api/azure/assess`, {
+        method: 'POST',
+        body: form,
+      });
+      data = await response.json();
+    } else {
+      // Direct Azure call (native only — key never reaches the browser)
+      const configJson = JSON.stringify({
+        ReferenceText: referenceText,
+        GradingSystem: 'HundredMark',
+        Granularity: 'Phoneme',
+        Dimension: 'Comprehensive',
+        EnableMiscue: 'True',
+      });
+      const assessmentConfig = btoa(unescape(encodeURIComponent(configJson)));
+      const audioBlob = await this.readAudioBlob(audioUri);
+      const contentType = this.getAudioContentType(audioUri);
+      const response = await this.makeRequestWithRetry(STT_ENDPOINT(this.region), {
         method: 'POST',
         headers: {
           'Ocp-Apim-Subscription-Key': this.key,
@@ -80,10 +91,9 @@ export class AzureSpeechService {
           'Pronunciation-Assessment': assessmentConfig,
         },
         body: audioBlob,
-      }
-    );
-
-    const data = await response.json();
+      });
+      data = await response.json();
+    }
 
     if (
       data.RecognitionStatus === 'NoMatch' ||
@@ -128,11 +138,20 @@ export class AzureSpeechService {
    * Used when no reference text is available.
    */
   async transcribeOnly(audioUri: string): Promise<{ text: string; confidence: number }> {
-    const audioBlob = await this.readAudioBlob(audioUri);
+    let data: any;
 
-    const response = await this.makeRequestWithRetry(
-      STT_ENDPOINT(this.region),
-      {
+    if (this.proxyUrl !== null) {
+      const audioBlob = await this.readAudioBlob(audioUri);
+      const form = new FormData();
+      form.append('audio', audioBlob, 'recording.webm');
+      const response = await this.makeRequestWithRetry(`${this.proxyUrl}/api/azure/transcribe`, {
+        method: 'POST',
+        body: form,
+      });
+      data = await response.json();
+    } else {
+      const audioBlob = await this.readAudioBlob(audioUri);
+      const response = await this.makeRequestWithRetry(STT_ENDPOINT(this.region), {
         method: 'POST',
         headers: {
           'Ocp-Apim-Subscription-Key': this.key,
@@ -140,10 +159,9 @@ export class AzureSpeechService {
           'Accept': 'application/json',
         },
         body: audioBlob,
-      }
-    );
-
-    const data = await response.json();
+      });
+      data = await response.json();
+    }
 
     if (data.RecognitionStatus !== 'Success') {
       return { text: '', confidence: 0 };
@@ -217,17 +235,25 @@ export class AzureSpeechService {
 let azureService: AzureSpeechService | null = null;
 let initializationError: Error | null = null;
 
-export const initializeAzureSpeech = (key: string, region: string): AzureSpeechService | null => {
+export const initializeAzureSpeech = (
+  key: string,
+  region: string,
+  proxyUrl?: string,
+): AzureSpeechService | null => {
   try {
-    // Validate credentials
-    if (!key || typeof key !== 'string' || key.trim().length === 0) {
-      throw new Error('Azure Speech key is empty or invalid');
+    if (proxyUrl !== undefined) {
+      // Proxy mode (web): proxyUrl can be '' (same-domain on Vercel) or a full URL (local dev).
+      // Either way the key stays server-side; the client only needs the base URL.
+      azureService = new AzureSpeechService('', '', proxyUrl);
+    } else {
+      if (!key || typeof key !== 'string' || key.trim().length === 0) {
+        throw new Error('Azure Speech key is empty or invalid');
+      }
+      if (!region || typeof region !== 'string' || region.trim().length === 0) {
+        throw new Error('Azure Speech region is empty or invalid');
+      }
+      azureService = new AzureSpeechService(key, region);
     }
-    if (!region || typeof region !== 'string' || region.trim().length === 0) {
-      throw new Error('Azure Speech region is empty or invalid');
-    }
-
-    azureService = new AzureSpeechService(key, region);
     initializationError = null;
     console.log('Azure Speech service initialized successfully');
     return azureService;

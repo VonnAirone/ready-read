@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -63,15 +63,12 @@ function RoomAvatar({ name }: RoomAvatarProps): React.JSX.Element {
   );
 }
 
-interface RecentRoomCardProps {
+interface MyRoomCardProps {
   room: Room;
   onPress: (room: Room) => void;
 }
 
-function RecentRoomCard({
-  room,
-  onPress,
-}: RecentRoomCardProps): React.JSX.Element {
+function MyRoomCard({ room, onPress }: MyRoomCardProps): React.JSX.Element {
   return (
     <TouchableOpacity
       style={styles.roomCard}
@@ -94,108 +91,6 @@ function RecentRoomCard({
   );
 }
 
-interface AllRoomCardProps {
-  room: Room;
-  isJoined: boolean;
-  isExpanded: boolean;
-  verifyCode: string;
-  verifying: boolean;
-  onPress: (room: Room) => void;
-  onVerifyCodeChange: (text: string) => void;
-  onVerify: (room: Room) => void;
-  onCancel: () => void;
-}
-
-function AllRoomCard({
-  room,
-  isJoined,
-  isExpanded,
-  verifyCode,
-  verifying,
-  onPress,
-  onVerifyCodeChange,
-  onVerify,
-  onCancel,
-}: AllRoomCardProps): React.JSX.Element {
-  return (
-    <>
-      <TouchableOpacity
-        style={styles.roomCard}
-        onPress={() => onPress(room)}
-        activeOpacity={0.75}
-        accessibilityRole="button"
-        accessibilityLabel={`${room.name}${isJoined ? ", already joined" : ", tap to join"}`}
-      >
-        <RoomAvatar name={room.name} />
-        <View style={styles.roomCardBody}>
-          <View style={styles.roomCardNameRow}>
-            <Text
-              style={[styles.roomCardName, { flexShrink: 1 }]}
-              numberOfLines={1}
-            >
-              {room.name}
-            </Text>
-            {isJoined ? (
-              <View style={styles.joinedBadge}>
-                <Text style={styles.joinedBadgeText}>Joined</Text>
-              </View>
-            ) : (
-              <View style={styles.newBadge}>
-                <Text style={styles.newBadgeText}>New</Text>
-              </View>
-            )}
-          </View>
-          <View style={styles.codeChip}>
-            <Text style={styles.codeChipText}>{room.code}</Text>
-          </View>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-      </TouchableOpacity>
-
-      {isExpanded && (
-        <View style={styles.verifyCard}>
-          <Text style={styles.verifyPrompt}>Enter room code to join</Text>
-          <TextInput
-            style={styles.verifyInput}
-            placeholder="Room code"
-            placeholderTextColor="#D1D5DB"
-            value={verifyCode}
-            onChangeText={onVerifyCodeChange}
-            autoCapitalize="characters"
-            autoCorrect={false}
-            maxLength={10}
-            accessibilityLabel="Room code input"
-          />
-          <View style={styles.verifyButtonRow}>
-            <TouchableOpacity
-              style={[styles.verifyBtn, styles.cancelBtn]}
-              onPress={onCancel}
-              disabled={verifying}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel"
-            >
-              <Text style={styles.cancelBtnText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.verifyBtn, styles.confirmBtn]}
-              onPress={() => onVerify(room)}
-              disabled={verifying}
-              accessibilityRole="button"
-              accessibilityLabel="Verify code"
-            >
-              {verifying ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={styles.confirmBtnText}>Verify</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-    </>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Main screen
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,38 +98,18 @@ function AllRoomCard({
 export default function Join(): React.JSX.Element {
   const navigation = useNavigation<any>();
 
-  // Join-by-code form
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Recently visited
-  const [recentRooms, setRecentRooms] = useState<Room[]>([]);
-  const [loadingRecent, setLoadingRecent] = useState(true);
+  // Only rooms this student has joined
+  const [myRooms, setMyRooms] = useState<Room[]>([]);
+  const [loadingMyRooms, setLoadingMyRooms] = useState(true);
 
-  // All rooms
-  const [allRooms, setAllRooms] = useState<Room[]>([]);
-  const [loadingAll, setLoadingAll] = useState(true);
-
-  // Joined state for the All Rooms section
-  const [joinedRoomCodes, setJoinedRoomCodes] = useState<string[]>([]);
-
-  // Inline verification for All Rooms
-  const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
-  const [verifyCode, setVerifyCode] = useState("");
-  const [verifying, setVerifying] = useState(false);
-
-  useEffect(() => {
-    loadRecentRooms();
-    loadAllRooms();
-  }, []);
-
-  // ── Data loaders ────────────────────────────────────────────────────────────
-
-  const loadRecentRooms = async (): Promise<void> => {
+  const loadMyRooms = useCallback(async (): Promise<void> => {
     try {
       const user = auth.currentUser;
       if (!user) {
-        setLoadingRecent(false);
+        setLoadingMyRooms(false);
         return;
       }
 
@@ -255,16 +130,13 @@ export default function Join(): React.JSX.Element {
         if (row.room_code) joinedCodes.add(row.room_code);
       });
 
-      // Populate joinedRoomCodes so the All Rooms section can use it
-      setJoinedRoomCodes(Array.from(joinedCodes));
-
       if (joinedCodes.size > 0) {
         const { data: roomRows } = await supabase
           .from("game_rooms")
           .select("id, room_code, room_name, created_by")
-          .in("room_code", Array.from(joinedCodes).slice(0, 30));
+          .in("room_code", Array.from(joinedCodes).slice(0, 50));
 
-        setRecentRooms(
+        setMyRooms(
           (roomRows ?? []).map((r) => ({
             id: r.id,
             code: r.room_code,
@@ -272,39 +144,24 @@ export default function Join(): React.JSX.Element {
             teacherId: r.created_by || "",
           }))
         );
+      } else {
+        setMyRooms([]);
       }
     } catch (error) {
-      console.error("JoinGameRoom: failed to load recent rooms", error);
+      console.error("JoinGameRoom: failed to load my rooms", error);
     } finally {
-      setLoadingRecent(false);
+      setLoadingMyRooms(false);
     }
-  };
+  }, []);
 
-  const loadAllRooms = async (): Promise<void> => {
-    try {
-      const { data: roomRows } = await supabase
-        .from("game_rooms")
-        .select("id, room_code, room_name, created_by");
-
-      setAllRooms(
-        (roomRows ?? []).map((r) => ({
-          id: r.id,
-          code: r.room_code || "",
-          name: r.room_name || "Unnamed Room",
-          teacherId: r.created_by || "",
-        }))
-      );
-    } catch (error) {
-      console.error("JoinGameRoom: failed to load all rooms", error);
-    } finally {
-      setLoadingAll(false);
-    }
-  };
+  useEffect(() => {
+    loadMyRooms();
+  }, [loadMyRooms]);
 
   // ── Navigation helpers ───────────────────────────────────────────────────────
 
   const handleRoomPress = (room: Room): void => {
-    navigation.replace("PronunciationRoom", {
+    navigation.navigate("PronunciationRoom", {
       roomData: {
         roomCode: room.code,
         roomID: room.id,
@@ -350,10 +207,9 @@ export default function Join(): React.JSX.Element {
         return;
       }
 
-      const wordRow = wordRows[0];
-      navigation.replace("Confirm", {
+      navigation.navigate("Confirm", {
         roomcode: trimmedCode,
-        roomID: wordRow.id,
+        roomID: roomRow.id,
         roomname: roomRow.room_name || "No Name",
         name: "",
         playername: "",
@@ -366,57 +222,6 @@ export default function Join(): React.JSX.Element {
     } finally {
       setLoading(false);
     }
-  };
-
-  // ── All Rooms verification ──────────────────────────────────────────────────
-
-  const handleAllRoomPress = (room: Room): void => {
-    if (joinedRoomCodes.includes(room.code)) {
-      handleRoomPress(room);
-    } else {
-      setExpandedRoomId(expandedRoomId === room.id ? null : room.id);
-      setVerifyCode("");
-    }
-  };
-
-  const handleVerify = async (room: Room): Promise<void> => {
-    if (verifyCode.trim() !== room.code) {
-      Alert.alert("Invalid Code", "The code you entered is incorrect.");
-      return;
-    }
-
-    setVerifying(true);
-    try {
-      const user = auth.currentUser;
-      if (user) {
-        const { data: existingRow } = await supabase
-          .from("joined_rooms")
-          .select("room_codes")
-          .eq("id", user.id)
-          .single();
-
-        const existing: string[] = existingRow?.room_codes ?? [];
-        if (!existing.includes(room.code)) {
-          await supabase.from("joined_rooms").upsert({
-            id: user.id,
-            room_codes: [...existing, room.code],
-            updated_at: new Date().toISOString(),
-          });
-        }
-        setJoinedRoomCodes((prev) => [...prev, room.code]);
-      }
-    } catch (_) {
-      // Non-fatal — proceed to navigation even if the upsert fails
-    }
-
-    setVerifying(false);
-    setExpandedRoomId(null);
-    navigation.replace("PronunciationRoom", { roomData: room });
-  };
-
-  const handleCancelVerify = (): void => {
-    setExpandedRoomId(null);
-    setVerifyCode("");
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -488,60 +293,39 @@ export default function Join(): React.JSX.Element {
           </TouchableOpacity>
         </View>
 
-        {/* ── Recently Visited ──────────────────────────────────────────── */}
-        {!loadingRecent && recentRooms.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="time" size={16} color="#8C52FF" />
-              <Text style={styles.sectionTitle}>Recently Visited</Text>
-            </View>
-
-            {recentRooms.map((room) => (
-              <RecentRoomCard
-                key={room.id}
-                room={room}
-                onPress={handleRoomPress}
-              />
-            ))}
-          </View>
-        )}
-
-        {/* ── All Rooms ─────────────────────────────────────────────────── */}
+        {/* ── My Rooms ─────────────────────────────────────────────────── */}
         <View style={[styles.section, styles.lastSection]}>
           <View style={styles.sectionHeader}>
             <Ionicons name="grid" size={16} color="#8C52FF" />
-            <Text style={[styles.sectionTitle, { flex: 1 }]}>All Rooms</Text>
-            {!loadingAll && (
+            <Text style={[styles.sectionTitle, { flex: 1 }]}>My Rooms</Text>
+            {!loadingMyRooms && (
               <View style={styles.countPill}>
                 <Text style={styles.countPillText}>
-                  {allRooms.length} room{allRooms.length !== 1 ? "s" : ""}
+                  {myRooms.length} room{myRooms.length !== 1 ? "s" : ""}
                 </Text>
               </View>
             )}
           </View>
 
-          {loadingAll ? (
+          {loadingMyRooms ? (
             <View style={styles.centeredState}>
               <ActivityIndicator color="#8C52FF" />
               <Text style={styles.stateText}>Loading rooms...</Text>
             </View>
-          ) : allRooms.length === 0 ? (
+          ) : myRooms.length === 0 ? (
             <View style={styles.centeredState}>
-              <Text style={styles.stateText}>No rooms available</Text>
+              <Ionicons name="lock-closed-outline" size={32} color="#D1D5DB" />
+              <Text style={styles.stateText}>No rooms yet</Text>
+              <Text style={styles.stateSubtext}>
+                Enter a code above to join your first room
+              </Text>
             </View>
           ) : (
-            allRooms.map((room) => (
-              <AllRoomCard
+            myRooms.map((room) => (
+              <MyRoomCard
                 key={room.id}
                 room={room}
-                isJoined={joinedRoomCodes.includes(room.code)}
-                isExpanded={expandedRoomId === room.id}
-                verifyCode={verifyCode}
-                verifying={verifying}
-                onPress={handleAllRoomPress}
-                onVerifyCodeChange={setVerifyCode}
-                onVerify={handleVerify}
-                onCancel={handleCancelVerify}
+                onPress={handleRoomPress}
               />
             ))
           )}
@@ -699,7 +483,7 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily("regular"),
   },
 
-  // Room card (shared by Recent and All Rooms)
+  // Room card
   roomCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -731,12 +515,6 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 12,
   },
-  roomCardNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 4,
-  },
   roomCardName: {
     fontSize: 15,
     color: "#111827",
@@ -756,95 +534,21 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily("semibold"),
   },
 
-  // Joined / New badges
-  joinedBadge: {
-    backgroundColor: "#D1FAE5",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  joinedBadgeText: {
-    fontSize: 11,
-    color: "#059669",
-    fontFamily: getFontFamily("semibold"),
-  },
-  newBadge: {
-    backgroundColor: "#F3F4F6",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  newBadgeText: {
-    fontSize: 11,
-    color: "#6B7280",
-    fontFamily: getFontFamily("semibold"),
-  },
-
-  // Inline verify card
-  verifyCard: {
-    backgroundColor: "#F5F3FF",
-    borderRadius: 12,
-    padding: 16,
-    marginTop: -4,
-    marginBottom: 10,
-  },
-  verifyPrompt: {
-    fontSize: 13,
-    color: "#374151",
-    fontFamily: getFontFamily("regular"),
-    marginBottom: 10,
-  },
-  verifyInput: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    fontSize: 16,
-    color: "#8C52FF",
-    textAlign: "center",
-    fontFamily: getFontFamily("semibold"),
-    letterSpacing: 2,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 12,
-  },
-  verifyButtonRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  verifyBtn: {
-    flex: 1,
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelBtn: {
-    backgroundColor: "#F3F4F6",
-  },
-  cancelBtnText: {
-    fontSize: 14,
-    color: "#374151",
-    fontFamily: getFontFamily("semibold"),
-  },
-  confirmBtn: {
-    backgroundColor: "#8C52FF",
-  },
-  confirmBtnText: {
-    fontSize: 14,
-    color: "#FFFFFF",
-    fontFamily: getFontFamily("semibold"),
-  },
-
   // Loading / empty states
   centeredState: {
     alignItems: "center",
-    paddingVertical: 24,
+    paddingVertical: 32,
     gap: 8,
   },
   stateText: {
     fontSize: 14,
     color: "#6B7280",
+    fontFamily: getFontFamily("semibold"),
+  },
+  stateSubtext: {
+    fontSize: 13,
+    color: "#9CA3AF",
     fontFamily: getFontFamily("regular"),
+    textAlign: "center",
   },
 });

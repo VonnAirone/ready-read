@@ -60,7 +60,7 @@ export default function StudentDashboard({ navigation }: any) {
       const user = auth.currentUser;
       if (user) {
         try {
-          const id = await getOrCreateSessionId(user.uid);
+          const id = await getOrCreateSessionId(user.id);
           setSessionId(id);
         } catch (error) {
           console.warn("[StudentDashboard] Session init failed:", error);
@@ -71,7 +71,8 @@ export default function StudentDashboard({ navigation }: any) {
   }, []);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const loadDashboardData = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user ?? null;
       if (!user) return;
 
@@ -117,9 +118,9 @@ export default function StudentDashboard({ navigation }: any) {
       } catch {
         setStats({ readerLevel: 1, microLevelsDone: 0, avgScore: 0 });
       }
-    });
+    };
 
-    return () => subscription.unsubscribe();
+    loadDashboardData();
   }, []);
 
   const handleSignOut = () => {
@@ -141,7 +142,7 @@ export default function StudentDashboard({ navigation }: any) {
 
   const handleJoinRoom = () => {
     if (auth.currentUser) {
-      navigation.navigate("RoomTab", { screen: "JoinRoom", params: { sessionId, userId: auth.currentUser.uid } });
+      navigation.navigate("RoomTab", { screen: "JoinRoom", params: { sessionId, userId: auth.currentUser.id } });
     } else {
       Alert.alert("Error", "Please log in to join a room.");
     }
@@ -149,7 +150,7 @@ export default function StudentDashboard({ navigation }: any) {
 
   const handlePersonalPractice = () => {
     if (auth.currentUser) {
-      navigation.navigate("PracticeTab", { screen: "PersonalPractice", params: { sessionId, userId: auth.currentUser.uid } });
+      navigation.navigate("PracticeTab", { screen: "PersonalPractice", params: { sessionId, userId: auth.currentUser.id } });
     } else {
       Alert.alert("Error", "Please log in to access personal practice.");
     }
@@ -265,20 +266,14 @@ export default function StudentDashboard({ navigation }: any) {
               <Ionicons name="people" size={28} color="rgba(255,255,255,0.9)" />
             </LinearGradient>
             <View style={styles.taskInfo}>
-              <Text style={styles.taskType}>Next Session</Text>
-              <Text style={styles.taskTitle}>Join Game Room</Text>
-              {stats && stats.avgScore > 0 && (
-                <Text style={styles.taskScore}>
-                  Last score:{" "}
-                  <Text style={styles.taskScoreValue}>{stats.avgScore}%</Text>
-                </Text>
-              )}
+              <Text style={styles.taskType}>Class Session</Text>
+              <Text style={styles.taskTitle}>Join Teacher's Room</Text>
               <TouchableOpacity
                 style={styles.taskStartBtn}
                 onPress={handleJoinRoom}
                 activeOpacity={0.8}
               >
-                <Text style={styles.taskStartText}>Join room</Text>
+                <Text style={styles.taskStartText}>Enter room code</Text>
                 <Ionicons name="arrow-forward" size={14} color={COLORS.primary} />
               </TouchableOpacity>
             </View>

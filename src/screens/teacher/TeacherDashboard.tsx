@@ -16,6 +16,7 @@ import { ScreenLayout } from '../../components/ScreenLayout';
 import { getFontFamily } from '../../../styles/fonts';
 
 const { width } = Dimensions.get('window');
+const CARD_WIDTH = (width - 56) / 2;
 
 interface DashboardStats {
   totalRooms: number;
@@ -104,10 +105,17 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
       'Are you sure you want to logout?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Logout', 
+        {
+          text: 'Logout',
           style: 'destructive',
-          onPress: () => auth.signOut()
+          onPress: async () => {
+            try {
+              await auth.signOut();
+            } catch (err) {
+              console.error('[TeacherDashboard] signOut failed:', err);
+              Alert.alert('Logout Failed', 'Could not sign out. Please check your connection and try again.');
+            }
+          },
         },
       ]
     );
@@ -120,105 +128,87 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
     return 'Good Evening';
   };
 
-  const DashboardCard = ({ 
-    title, 
-    value, 
-    icon, 
-    color, 
-    onPress 
-  }: {
-    title: string;
-    value: string | number;
-    icon: keyof typeof Ionicons.glyphMap;
-    color: string;
-    onPress?: () => void;
-  }) => (
-    <TouchableOpacity style={styles.statCard} onPress={onPress}>
-      <View style={[styles.statIcon, { backgroundColor: color }]}>
-        <Ionicons name={icon} size={24} color="white" />
-      </View>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statTitle}>{title}</Text>
-    </TouchableOpacity>
-  );
+  const getInitials = (name: string) =>
+    name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
 
-  const QuickAction = ({ 
-    title, 
-    icon, 
-    color, 
-    onPress 
-  }: {
-    title: string;
-    icon: keyof typeof Ionicons.glyphMap;
-    color: string;
-    onPress: () => void;
-  }) => (
-    <TouchableOpacity style={styles.actionCard} onPress={onPress}>
-      <LinearGradient
-        colors={[color, `${color}CC`]}
-        style={styles.actionGradient}
-      >
-        <Ionicons name={icon} size={28} color="white" />
-        <Text style={styles.actionTitle}>{title}</Text>
-      </LinearGradient>
-    </TouchableOpacity>
-  );
+  const statCards = [
+    { title: 'Total Rooms', value: stats.totalRooms, icon: 'home' as const, color: '#4CAF50', bg: '#E8F5E9', onPress: () => navigation.navigate('Room') },
+    { title: 'Students', value: stats.activeStudents, icon: 'people' as const, color: '#2196F3', bg: '#E3F2FD', onPress: () => navigation.navigate('StudentList') },
+    { title: 'Assessments', value: stats.completedAssessments, icon: 'clipboard' as const, color: '#FF9800', bg: '#FFF3E0', onPress: () => navigation.navigate('AssessmentResults') },
+    { title: 'Avg Score', value: `${stats.avgScore}%`, icon: 'trending-up' as const, color: COLORS.primary, bg: '#EDE9FE', onPress: () => navigation.navigate('AssessmentResults') },
+  ];
+
+  const quickActions = [
+    { title: 'Create Room', desc: 'Set up a new practice room', icon: 'add-circle' as const, colors: ['#4CAF50', '#2E7D32'] as [string, string], onPress: () => navigation.navigate('RoomGenerator') },
+    { title: 'Manage Rooms', desc: 'View and edit existing rooms', icon: 'settings' as const, colors: ['#2196F3', '#1565C0'] as [string, string], onPress: () => navigation.navigate('Room') },
+    { title: 'Students', desc: 'Monitor student progress', icon: 'people' as const, colors: [COLORS.primary, COLORS.secondary] as [string, string], onPress: () => navigation.navigate('StudentList') },
+    { title: 'Assessments', desc: 'Review completed assessments', icon: 'bar-chart' as const, colors: ['#FF9800', '#E65100'] as [string, string], onPress: () => navigation.navigate('AssessmentResults') },
+  ];
 
   return (
-    <ScreenLayout>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Text style={styles.greeting}>{getGreeting()}</Text>
-            <Text style={styles.teacherName}>{teacherName}</Text>
-          </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={24} color="#6B7280" />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Stats Overview */}
-          <Text style={styles.sectionTitle}>Overview</Text>
-          <View style={styles.statsContainer}>
-            <DashboardCard
-              title="Total Rooms"
-              value={stats.totalRooms}
-              icon="home-outline"
-              color="#4CAF50"
-              onPress={() => navigation.navigate('Room')}
-            />
-            <DashboardCard
-              title="Active Students"
-              value={stats.activeStudents}
-              icon="people-outline"
-              color="#2196F3"
-              onPress={() => navigation.navigate('StudentList')}
-            />
-            <DashboardCard
-              title="Assessments"
-              value={stats.completedAssessments}
-              icon="clipboard-outline"
-              color="#FF9800"
-              onPress={() => navigation.navigate('AssessmentResults')}
-            />
+    <ScreenLayout noPadding>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Gradient Header */}
+        <LinearGradient colors={[COLORS.primary, COLORS.secondary]} style={styles.headerGradient}>
+          <View style={styles.headerTop}>
+            <View style={styles.headerLeft}>
+              <Text style={styles.greeting}>{getGreeting()}</Text>
+              <Text style={styles.teacherName}>{teacherName}</Text>
+            </View>
+            <View style={styles.headerRight}>
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarText}>{getInitials(teacherName)}</Text>
+              </View>
+              <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+                <Ionicons name="log-out-outline" size={22} color="rgba(255,255,255,0.8)" />
+              </TouchableOpacity>
+            </View>
           </View>
 
+          {/* Inline Stats Strip */}
+          <View style={styles.headerStats}>
+            <View style={styles.headerStatItem}>
+              <Text style={styles.headerStatValue}>{stats.totalRooms}</Text>
+              <Text style={styles.headerStatLabel}>Rooms</Text>
+            </View>
+            <View style={styles.headerStatDivider} />
+            <View style={styles.headerStatItem}>
+              <Text style={styles.headerStatValue}>{stats.activeStudents}</Text>
+              <Text style={styles.headerStatLabel}>Students</Text>
+            </View>
+            <View style={styles.headerStatDivider} />
+            <View style={styles.headerStatItem}>
+              <Text style={styles.headerStatValue}>{stats.completedAssessments}</Text>
+              <Text style={styles.headerStatLabel}>Assessments</Text>
+            </View>
+            <View style={styles.headerStatDivider} />
+            <View style={styles.headerStatItem}>
+              <Text style={styles.headerStatValue}>{stats.avgScore}%</Text>
+              <Text style={styles.headerStatLabel}>Avg Score</Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        <View style={styles.body}>
           {/* Quick Actions */}
           <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionsContainer}>
-            <QuickAction
-              title="Create Room"
-              icon="add-circle-outline"
-              color="#4CAF50"
-              onPress={() => navigation.navigate('RoomGenerator')}
-            />
-            <QuickAction
-              title="Manage Rooms"
-              icon="settings-outline"
-              color="#2196F3"
-              onPress={() => navigation.navigate('Room')}
-            />
+          <View style={styles.actionsGrid}>
+            {quickActions.map((action) => (
+              <TouchableOpacity key={action.title} style={styles.actionCard} onPress={action.onPress} activeOpacity={0.85}>
+                <LinearGradient colors={action.colors} style={styles.actionGradient}>
+                  <View style={styles.actionIconWrap}>
+                    <Ionicons name={action.icon} size={26} color="white" />
+                  </View>
+                  <Text style={styles.actionTitle}>{action.title}</Text>
+                  <Text style={styles.actionDesc}>{action.desc}</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            ))}
           </View>
 
           {/* Recent Activity */}
@@ -226,9 +216,13 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
           <View style={styles.activityContainer}>
             {recentActivity.length === 0 ? (
               <View style={styles.noActivityContainer}>
-                <Ionicons name="time-outline" size={48} color="#D1D5DB" />
+                <View style={styles.noActivityIcon}>
+                  <Ionicons name="time-outline" size={40} color="#9CA3AF" />
+                </View>
                 <Text style={styles.noActivityText}>No recent activity</Text>
-                <Text style={styles.noActivitySubtext}>Activity will appear here as students join and practice</Text>
+                <Text style={styles.noActivitySubtext}>
+                  Activity will appear here as students join and practice
+                </Text>
               </View>
             ) : (
               recentActivity.map((activity) => (
@@ -241,118 +235,146 @@ export default function TeacherDashboard({ navigation }: TeacherDashboardProps) 
                     <Text style={styles.activitySubtitle}>{activity.subtitle}</Text>
                   </View>
                   <Text style={styles.activityTime}>
-                    {activity.timestamp.toLocaleTimeString('en-US', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {activity.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                   </Text>
                 </View>
               ))
             )}
           </View>
-        </ScrollView>
+        </View>
+      </ScrollView>
     </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
+  headerGradient: {
+    paddingTop: 56,
+    paddingBottom: 28,
+    paddingHorizontal: 20,
+  },
+  headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    alignItems: 'flex-start',
+    marginBottom: 24,
   },
   headerLeft: {
     flex: 1,
   },
   greeting: {
-    fontSize: 16,
+    fontSize: 14,
     fontFamily: getFontFamily('regular'),
-    color: '#9CA3AF',
+    color: 'rgba(255,255,255,0.75)',
     marginBottom: 4,
   },
   teacherName: {
-    fontSize: 24,
+    fontSize: 26,
     fontFamily: getFontFamily('bold'),
-    color: '#111827',
+    color: 'white',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  avatarCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.4)',
+  },
+  avatarText: {
+    fontSize: 16,
+    fontFamily: getFontFamily('bold'),
+    color: 'white',
   },
   logoutButton: {
-    padding: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  content: {
+  headerStats: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+  },
+  headerStatItem: {
     flex: 1,
+    alignItems: 'center',
+  },
+  headerStatValue: {
+    fontSize: 20,
+    fontFamily: getFontFamily('bold'),
+    color: 'white',
+    marginBottom: 2,
+  },
+  headerStatLabel: {
+    fontSize: 11,
+    fontFamily: getFontFamily('regular'),
+    color: 'rgba(255,255,255,0.75)',
+  },
+  headerStatDivider: {
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    marginVertical: 4,
+  },
+  body: {
     paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 32,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: getFontFamily('semibold'),
     color: '#111827',
     marginBottom: 16,
     marginTop: 8,
   },
-  statsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 32,
-  },
-  statCard: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    width: (width - 60) / 2,
-    minHeight: 120,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  statIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  statValue: {
-    fontSize: 24,
-    fontFamily: getFontFamily('bold'),
-    color: '#111827',
-    marginBottom: 4,
-  },
-  statTitle: {
-    fontSize: 14,
-    fontFamily: getFontFamily('regular'),
-    color: '#6B7280',
-    textAlign: 'center',
-  },
-  actionsContainer: {
+  actionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
     marginBottom: 32,
   },
   actionCard: {
-    width: (width - 60) / 2,
-    borderRadius: 16,
+    width: CARD_WIDTH,
+    borderRadius: 18,
     overflow: 'hidden',
   },
   actionGradient: {
-    padding: 20,
+    padding: 18,
+    minHeight: 120,
+  },
+  actionIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 100,
+    marginBottom: 12,
   },
   actionTitle: {
-    fontSize: 16,
-    fontFamily: getFontFamily('semibold'),
+    fontSize: 15,
+    fontFamily: getFontFamily('bold'),
     color: 'white',
-    textAlign: 'center',
-    marginTop: 8,
+    marginBottom: 3,
+  },
+  actionDesc: {
+    fontSize: 12,
+    fontFamily: getFontFamily('regular'),
+    color: 'rgba(255,255,255,0.8)',
+    lineHeight: 16,
   },
   activityContainer: {
     backgroundColor: '#F9FAFB',
@@ -382,13 +404,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   activityTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: getFontFamily('medium'),
     color: '#111827',
     marginBottom: 2,
   },
   activitySubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: getFontFamily('regular'),
     color: '#6B7280',
   },
@@ -399,23 +421,29 @@ const styles = StyleSheet.create({
   },
   noActivityContainer: {
     alignItems: 'center',
+    paddingVertical: 32,
+  },
+  noActivityIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
+    marginBottom: 16,
   },
   noActivityText: {
     fontSize: 16,
     fontFamily: getFontFamily('medium'),
-    color: '#6B7280',
-    marginTop: 12,
-    textAlign: 'center',
+    color: '#374151',
+    marginBottom: 6,
   },
   noActivitySubtext: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: getFontFamily('regular'),
     color: '#9CA3AF',
-    marginTop: 4,
     textAlign: 'center',
-    paddingHorizontal: 20,
     lineHeight: 20,
+    paddingHorizontal: 20,
   },
 });

@@ -8,8 +8,9 @@ import {
   Alert,
   ScrollView,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase, auth } from "../../services/supabase";
+import { supabase } from "../../services/supabase";
 import { COLORS } from "../../constants/theme";
 import { ScreenLayout } from "../../components/ScreenLayout";
 import { getFontFamily } from "../../../styles/fonts";
@@ -18,12 +19,13 @@ export default function CreateGameRoom({ navigation }: any) {
   const [roomName, setRoomName] = useState("");
   const [creatorName, setCreatorName] = useState("");
   const [roomCode, setRoomCode] = useState("");
-  const [quizId, setQuizId] = useState(""); // 👈 new
+  const [quizId, setQuizId] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  // 🔑 Fetch teacher's name automatically
   useEffect(() => {
     const fetchTeacherName = async () => {
-      const user = auth.currentUser;
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return;
 
       try {
@@ -41,26 +43,42 @@ export default function CreateGameRoom({ navigation }: any) {
     fetchTeacherName();
   }, []);
 
-  // Generate a unique room code (checks Supabase for collisions)
   const generateCode = async () => {
-    const generateRandom = () => Math.random().toString(36).substring(2, 8).toUpperCase();
-    let code = generateRandom();
+    if (isGenerating) return;
+    setIsGenerating(true);
+    try {
+      const generateRandom = () => Math.random().toString(36).substring(2, 8).toUpperCase();
+      let code = '';
+      let unique = false;
 
-    for (let attempts = 0; attempts < 5; attempts++) {
-      const { data: existing } = await supabase
-        .from('game_rooms')
-        .select('id')
-        .eq('room_code', code);
-      if (!existing || existing.length === 0) break;
-      code = generateRandom();
+      for (let attempts = 0; attempts < 5; attempts++) {
+        const candidate = generateRandom();
+        const { data: existing } = await supabase
+          .from('game_rooms')
+          .select('id')
+          .eq('room_code', candidate);
+        if (!existing || existing.length === 0) {
+          code = candidate;
+          unique = true;
+          break;
+        }
+      }
+
+      if (!unique) {
+        Alert.alert('Error', 'Could not generate a unique room code. Please try again.');
+        return;
+      }
+
+      const generatedQuizId = Math.random().toString(36).substring(2, 10);
+      setRoomCode(code);
+      setQuizId(generatedQuizId);
+    } catch (err) {
+      Alert.alert('Error', 'Could not generate a room code. Please try again.');
+    } finally {
+      setIsGenerating(false);
     }
-
-    const generatedQuizId = Math.random().toString(36).substring(2, 10);
-    setRoomCode(code);
-    setQuizId(generatedQuizId);
   };
 
-  // Save to Firestore (only teachers can)
   const saveRoom = async () => {
     if (!roomName || !creatorName || !roomCode || !quizId) {
       Alert.alert("Error", "Please fill in all fields and generate a code.");
@@ -68,13 +86,13 @@ export default function CreateGameRoom({ navigation }: any) {
     }
 
     try {
-      const user = auth.currentUser;
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) {
         Alert.alert("Error", "You must be logged in.");
         return;
       }
 
-      // Check if this user is a teacher
       const { data: teacherRow } = await supabase
         .from('teacher_accounts')
         .select('id')
@@ -85,7 +103,6 @@ export default function CreateGameRoom({ navigation }: any) {
         return;
       }
 
-      // Save room to Supabase
       const { data: newRoom, error: insertError } = await supabase
         .from('game_rooms')
         .insert({
@@ -129,99 +146,96 @@ export default function CreateGameRoom({ navigation }: any) {
   };
 
   return (
-    <ScreenLayout>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#374151" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Create Room</Text>
-          <View style={styles.headerRight} />
+    <ScreenLayout noPadding>
+      {/* Gradient Header */}
+      <LinearGradient colors={[COLORS.primary, COLORS.secondary]} style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={22} color="white" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Create Room</Text>
+        <View style={styles.headerSpacer} />
+      </LinearGradient>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {/* Icon + Title */}
+        <View style={styles.formHeader}>
+          <View style={styles.iconContainer}>
+            <LinearGradient colors={[COLORS.primary, COLORS.secondary]} style={styles.iconGradient}>
+              <Ionicons name="home" size={30} color="white" />
+            </LinearGradient>
+          </View>
+          <Text style={styles.formTitle}>New Pronunciation Room</Text>
+          <Text style={styles.formSubtitle}>Create a space for students to practice their pronunciation</Text>
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Room Creation Card */}
-          <View style={styles.formCard}>
-            <View>
-              {/* Form Header */}
-              <View style={styles.formHeader}>
-                <View style={styles.iconContainer}>
-                  <Ionicons name="home" size={32} color={COLORS.primary} />
-                </View>
-                <Text style={styles.formTitle}>New Pronunciation Room</Text>
-                <Text style={styles.formSubtitle}>Create a space for students to practice</Text>
-              </View>
-
-              {/* Room Name Input */}
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Room Name</Text>
-                <View style={styles.inputWrapper}>
-                  <Ionicons name="text-outline" size={20} color="#9CA3AF" />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Enter room name"
-                    placeholderTextColor="rgba(255,255,255,0.5)"
-                    value={roomName}
-                    onChangeText={setRoomName}
-                  />
-                </View>
-              </View>
-
-              {/* Teacher Name (Auto-filled) */}
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Created By</Text>
-                <View style={[styles.inputWrapper, styles.disabledInput]}>
-                  <Ionicons name="person-outline" size={20} color="#9CA3AF" />
-                  <TextInput
-                    style={[styles.input, styles.disabledInputText]}
-                    value={creatorName}
-                    editable={false}
-                  />
-                </View>
-              </View>
-
-              {/* Room Code Section */}
-              <View style={styles.codeSection}>
-                <Text style={styles.inputLabel}>Room Code</Text>
-                <View style={styles.codeContainer}>
-                  <View style={styles.codeDisplay}>
-                    <Ionicons name="key-outline" size={20} color="#374151" />
-                    <Text style={styles.codeText}>{roomCode || "------"}</Text>
-                  </View>
-                  <TouchableOpacity 
-                    style={styles.generateButton}
-                    onPress={generateCode}
-                  >
-                    <Ionicons name="refresh" size={20} color="white" />
-                    <Text style={styles.generateButtonText}>Generate</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Action Buttons */}
-              <View style={styles.buttonContainer}>
-                <TouchableOpacity 
-                  style={styles.saveButton}
-                  onPress={saveRoom}
-                >
-                  <Ionicons name="checkmark-circle" size={24} color="white" />
-                  <Text style={styles.saveButtonText}>Create Room</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.viewRoomsButton}
-                  onPress={() => navigation.navigate("Room")}
-                >
-                  <Ionicons name="list-outline" size={20} color="#374151" />
-                  <Text style={styles.viewRoomsButtonText}>View All Rooms</Text>
-                </TouchableOpacity>
-              </View>
+        {/* Form Card */}
+        <View style={styles.formCard}>
+          {/* Room Name */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Room Name</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="text-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Grade 3 – Section A"
+                placeholderTextColor="#9CA3AF"
+                value={roomName}
+                onChangeText={setRoomName}
+              />
             </View>
           </View>
-        </ScrollView>
+
+          {/* Created By */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Created By</Text>
+            <View style={[styles.inputWrapper, styles.inputDisabled]}>
+              <Ionicons name="person-outline" size={20} color="#9CA3AF" style={styles.inputIcon} />
+              <TextInput
+                style={[styles.input, styles.inputTextDisabled]}
+                value={creatorName}
+                editable={false}
+              />
+              <Ionicons name="lock-closed-outline" size={16} color="#D1D5DB" />
+            </View>
+          </View>
+
+          {/* Room Code */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Room Code</Text>
+            <View style={styles.codeRow}>
+              <View style={styles.codeDisplay}>
+                <Ionicons name="key-outline" size={20} color={roomCode ? COLORS.primary : '#9CA3AF'} />
+                <Text style={[styles.codeText, !roomCode && styles.codeTextPlaceholder]}>
+                  {roomCode || '——————'}
+                </Text>
+              </View>
+              <TouchableOpacity style={styles.generateButton} onPress={generateCode} disabled={isGenerating}>
+                <Ionicons name="refresh" size={18} color="white" />
+                <Text style={styles.generateButtonText}>Generate</Text>
+              </TouchableOpacity>
+            </View>
+            {roomCode ? (
+              <View style={styles.codeHint}>
+                <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
+                <Text style={styles.codeHintText}>Code generated — share this with students</Text>
+              </View>
+            ) : (
+              <Text style={styles.codeHintText}>Tap Generate to create a unique room code</Text>
+            )}
+          </View>
+        </View>
+
+        {/* Action Buttons */}
+        <TouchableOpacity style={styles.saveButton} onPress={saveRoom}>
+          <Ionicons name="checkmark-circle" size={22} color="white" />
+          <Text style={styles.saveButtonText}>Create Room</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.navigate("Room")}>
+          <Ionicons name="list-outline" size={20} color="#374151" />
+          <Text style={styles.secondaryButtonText}>View All Rooms</Text>
+        </TouchableOpacity>
+      </ScrollView>
     </ScreenLayout>
   );
 }
@@ -232,122 +246,136 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    paddingTop: 20,
+    paddingTop: 56,
+    paddingBottom: 20,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: {
+  headerTitle: {
     fontSize: 20,
-    fontFamily: getFontFamily('semibold'),
-    color: '#111827',
-    flex: 1,
-    textAlign: 'center',
-    marginHorizontal: 16,
+    fontFamily: getFontFamily('bold'),
+    color: 'white',
   },
-  headerRight: {
+  headerSpacer: {
     width: 40,
   },
   content: {
     flex: 1,
+  },
+  scrollContent: {
     paddingHorizontal: 20,
-  },
-  formCard: {
-    overflow: 'hidden',
-    marginBottom: 20,
-  },
-  formGradient: {
-    padding: 24,
+    paddingTop: 28,
+    paddingBottom: 40,
   },
   formHeader: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 28,
   },
   iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 16,
   },
+  iconGradient: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   formTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontFamily: getFontFamily('bold'),
     color: '#111827',
-    textAlign: 'center',
     marginBottom: 8,
+    textAlign: 'center',
   },
   formSubtitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontFamily: getFontFamily('regular'),
     color: '#6B7280',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 20,
+    paddingHorizontal: 20,
   },
-  inputContainer: {
-    marginBottom: 15,
+  formCard: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+    gap: 20,
+  },
+  inputGroup: {
+    gap: 8,
   },
   inputLabel: {
-    fontSize: 16,
-    fontFamily: getFontFamily('medium'),
-    color: '#111827',
-    marginBottom: 8,
+    fontSize: 14,
+    fontFamily: getFontFamily('semibold'),
+    color: '#374151',
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    borderWidth: 1.5,
     borderColor: '#E5E7EB',
   },
-  disabledInput: {
+  inputDisabled: {
     backgroundColor: '#F3F4F6',
-    opacity: 0.7,
+    borderColor: '#E5E7EB',
+  },
+  inputIcon: {
+    marginRight: 10,
   },
   input: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: getFontFamily('medium'),
     color: '#111827',
-    paddingVertical: 16,
-    paddingLeft: 12,
+    paddingVertical: 14,
   },
-  disabledInputText: {
-    color: '#6B7280',
+  inputTextDisabled: {
+    color: '#9CA3AF',
   },
-  codeSection: {
-    marginBottom: 32,
-  },
-  codeContainer: {
+  codeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   codeDisplay: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
     backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
   },
   codeText: {
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: getFontFamily('bold'),
     color: '#111827',
-    marginLeft: 12,
-    letterSpacing: 2,
+    letterSpacing: 3,
+  },
+  codeTextPlaceholder: {
+    color: '#D1D5DB',
+    letterSpacing: 4,
   },
   generateButton: {
     flexDirection: 'row',
@@ -355,52 +383,60 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: COLORS.primary,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 14,
+    borderRadius: 14,
     gap: 6,
   },
   generateButtonText: {
     fontSize: 14,
-    fontFamily: getFontFamily('medium'),
+    fontFamily: getFontFamily('semibold'),
     color: 'white',
   },
-  buttonContainer: {
-    gap: 16,
+  codeHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  codeHintText: {
+    fontSize: 12,
+    fontFamily: getFontFamily('regular'),
+    color: '#9CA3AF',
+    marginTop: 4,
   },
   saveButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+    backgroundColor: '#4CAF50',
     borderRadius: 16,
-    paddingVertical: 18,
-    paddingHorizontal: 24,
+    paddingVertical: 16,
+    gap: 10,
+    marginBottom: 12,
     shadowColor: '#4CAF50',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 8,
-    gap: 8,
+    elevation: 6,
   },
   saveButtonText: {
-    fontSize: 18,
-    fontFamily: getFontFamily('semibold'),
+    fontSize: 17,
+    fontFamily: getFontFamily('bold'),
     color: 'white',
   },
-  viewRoomsButton: {
+  secondaryButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F9FAFB',
     borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
+    paddingVertical: 14,
+    gap: 8,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    gap: 8,
   },
-  viewRoomsButtonText: {
-    fontSize: 16,
+  secondaryButtonText: {
+    fontSize: 15,
     fontFamily: getFontFamily('medium'),
     color: '#374151',
   },

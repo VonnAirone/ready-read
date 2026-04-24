@@ -1,4 +1,3 @@
-# backend/app.py — local dev server (mirrors api/index.py for running outside Vercel)
 import os
 import base64
 import json
@@ -92,7 +91,3 @@ def azure_transcribe():
         return jsonify(resp.json())
     except requests.RequestException as e:
         return jsonify({"error": str(e)}), 502
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)

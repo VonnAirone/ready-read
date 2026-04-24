@@ -101,10 +101,13 @@ export const determineReaderLevel = (totalScore: number): 1 | 2 | 3 | 4 => {
   return 1;                            // 0-10 points  -> Reader Level 1
 };
 
+// Minimum pronunciation accuracy (0-100) required to advance to the next item.
+export const PASS_THRESHOLD = 70;
+
 // Calculate weighted total score (each passage worth 10 points)
-export const calculateTotalScore = (results: { percentage: number; points: number }[]): number => {
+export const calculateTotalScore = (results: { score: number; points: number }[]): number => {
   return results.reduce((total, result) => {
-    return total + Math.round((result.percentage / 100) * result.points);
+    return total + Math.round((result.score / 100) * result.points);
   }, 0);
 };
 
