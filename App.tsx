@@ -1,5 +1,5 @@
 import React, { useEffect, useState, Component, type ReactNode } from "react";
-import { View, Text, StyleSheet, Alert, Platform } from "react-native";
+import { View, Text, StyleSheet, Alert } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { supabase, auth } from "./src/services/supabase";
@@ -26,27 +26,13 @@ import SetupPlayerProfile from "./src/screens/student/SetupPlayerProfile";
 import StudentDashboard from "./src/screens/student/StudentDashboard";
 import Leaderboard from "./src/screens/Leaderboard";
 import { StudentTabNavigator } from "./src/navigation/StudentTabNavigator";
-import { initializeAzureSpeech } from "./src/services/azureSpeech";
-import { AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, AZURE_PROXY_URL } from "@env";
+import { initializeGroqSpeech } from "./src/services/groqSpeech";
+import { GROQ_API_KEY } from "@env";
 
-// On web the Azure key must never ship in the browser bundle — use the backend proxy.
-// On native (iOS/Android) we call Azure directly with the key from the build env.
-if (Platform.OS === 'web') {
-  // AZURE_PROXY_URL is '' on Vercel (same-domain) or 'http://localhost:5000' locally.
-  // Pass it as proxyUrl so the key never reaches the browser bundle.
-  const result = initializeAzureSpeech('', '', AZURE_PROXY_URL ?? '');
-  if (!result) {
-    console.warn('Azure Speech proxy initialization failed - speech features will be unavailable');
-  }
+if (!GROQ_API_KEY) {
+  console.error('Groq API key missing — check GROQ_API_KEY in .env');
 } else {
-  if (!AZURE_SPEECH_KEY || !AZURE_SPEECH_REGION) {
-    console.error('Azure Speech env vars missing — check AZURE_SPEECH_KEY and AZURE_SPEECH_REGION in .env');
-  } else {
-    const result = initializeAzureSpeech(AZURE_SPEECH_KEY, AZURE_SPEECH_REGION);
-    if (!result) {
-      console.warn('Azure Speech initialization failed - speech features will be unavailable');
-    }
-  }
+  initializeGroqSpeech(GROQ_API_KEY);
 }
 
 // ── Error boundary — catches JS crashes and shows a readable screen ──────────
@@ -67,7 +53,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
           <Text style={errorStyles.message}>{this.state.error.message}</Text>
           <Text style={errorStyles.hint}>
             If this is a build issue, check that all EAS environment variables are set:
-            {'\n'}SUPABASE_URL, SUPABASE_ANON_KEY, AZURE_SPEECH_KEY, AZURE_SPEECH_REGION
+            {'\n'}SUPABASE_URL, SUPABASE_ANON_KEY, GROQ_API_KEY
           </Text>
         </View>
       );

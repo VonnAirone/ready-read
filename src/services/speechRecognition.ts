@@ -1,4 +1,4 @@
-import { getAzureSpeechService, AzureWordResult } from './azureSpeech';
+import { getGroqSpeechService } from './groqSpeech';
 import { WordMatchResult } from '../types';
 
 export interface TranscriptionResult {
@@ -6,57 +6,19 @@ export interface TranscriptionResult {
   confidence: number;
   success: boolean;
   error?: string;
-  azureScores?: {
-    accuracyScore: number;
-    fluencyScore: number;
-    completenessScore: number;
-    pronScore: number;
-  };
 }
 
 export class SpeechRecognitionService {
-  // Cached word results from the last assessPronunciation call
-  private lastWordResults: AzureWordResult[] = [];
-
   async transcribeAudio(audioUri: string, expectedText?: string): Promise<TranscriptionResult> {
-    // Clear stale word results from any previous call so getWordLevelResults
-    // never returns results that belong to a different word.
-    this.lastWordResults = [];
-
     try {
-      const service = getAzureSpeechService();
+      const service = getGroqSpeechService();
+      const result = await service.transcribeAudio(audioUri, { expectedText });
 
-      if (expectedText && expectedText.trim()) {
-        // Full pronunciation assessment — returns word-level scores
-        const result = await service.assessPronunciation(audioUri, expectedText);
-        this.lastWordResults = result.words;
-
-        if (!result.recognizedText) {
-          return { text: '', confidence: 0, success: false, error: 'No transcription text received' };
-        }
-
-        return {
-          text: result.recognizedText,
-          confidence: result.accuracyScore / 100,
-          success: true,
-          azureScores: {
-            accuracyScore: result.accuracyScore,
-            fluencyScore: result.fluencyScore,
-            completenessScore: result.completenessScore,
-            pronScore: result.pronScore,
-          },
-        };
-      } else {
-        // Plain transcription (no reference text available)
-        this.lastWordResults = [];
-        const result = await service.transcribeOnly(audioUri);
-
-        if (!result.text) {
-          return { text: '', confidence: 0, success: false, error: 'No transcription text received' };
-        }
-
-        return { text: result.text, confidence: result.confidence, success: true };
+      if (!result.transcript) {
+        return { text: '', confidence: 0, success: false, error: 'No transcription text received' };
       }
+
+      return { text: result.transcript, confidence: result.confidence, success: true };
     } catch (error) {
       return {
         text: '',
@@ -67,10 +29,6 @@ export class SpeechRecognitionService {
     }
   }
 
-  /**
-   * Calculates overall accuracy (0–100) between expected and transcribed text.
-   * Uses Azure scores when available, otherwise Levenshtein-based comparison.
-   */
   calculateAccuracy(original: string, transcribed: string): number {
     const results = this.getWordLevelResults(original, transcribed);
     if (results.length === 0) return 0;
@@ -78,10 +36,6 @@ export class SpeechRecognitionService {
     return (correct / results.length) * 100;
   }
 
-  /**
-   * Calculates accuracy (0–100) based only on a specific set of keywords.
-   * Useful when only key words matter for scoring (e.g. word-level assessment items).
-   */
   getKeyWordAccuracy(original: string, transcribed: string, keywords: string[]): number {
     if (keywords.length === 0) return this.calculateAccuracy(original, transcribed);
     const normalize = (w: string) => w.toLowerCase().replace(/[^\w]/g, '');
@@ -94,36 +48,93 @@ export class SpeechRecognitionService {
   }
 
   /**
-   * Returns per-word pronunciation results.
-   * Uses Azure word scores when available (set after assessPronunciation),
-   * falls back to Levenshtein comparison otherwise.
+   * Aligns expected vs transcribed words using global sequence alignment (Needleman-Wunsch).
+   *
+   * Positional matching breaks as soon as the student inserts or skips a word —
+   * every subsequent word in the sentence shifts and gets mismatched. Alignment
+   * finds the globally cheapest mapping so each expected word is compared to the
+   * closest spoken equivalent, even across insertions/deletions.
+   *
+   * Cost model (integer, no float precision issues in traceback):
+   *   match     (sim ≥ 0.80) = 0   → free
+   *   near-miss (sim ≥ 0.50) = 1   → cheap, aligns but marks incorrect
+   *   bad sub   (sim < 0.50) = 3   → costly, alignment prefers two gaps (2) instead
+   *   gap                    = 1   → word missing or extra
+   *
+   * Result: very different words are shown as "missing" rather than confusingly
+   * attributed to the wrong expected word.
    */
   getWordLevelResults(original: string, transcribed: string): WordMatchResult[] {
-    if (this.lastWordResults.length > 0) {
-      return this.lastWordResults.map(w => ({
-        expected: w.word,
-        spoken: w.errorType === 'None' ? w.word : null,
-        isCorrect: w.accuracyScore >= 80 && w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission',
-        similarity: w.accuracyScore / 100,
-        phonemes: w.phonemes,
-      }));
-    }
-
-    // Fallback: text-based Levenshtein comparison
-    const normalizeText = (text: string) =>
+    const normalize = (text: string) =>
       text.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
 
-    const expectedWords = normalizeText(original).split(' ').filter(w => w.length > 0);
-    const transcribedWords = normalizeText(transcribed).split(' ').filter(w => w.length > 0);
+    const expected = normalize(original).split(' ').filter(w => w.length > 0);
+    const spoken   = normalize(transcribed).split(' ').filter(w => w.length > 0);
 
-    return expectedWords.map((expected, i) => {
-      const spoken = transcribedWords[i] || null;
-      if (!spoken) {
-        return { expected, spoken: null, isCorrect: false, similarity: 0 };
-      }
-      const sim = this.wordSimilarity(expected, spoken);
-      return { expected, spoken, isCorrect: sim >= 0.80, similarity: sim };
+    if (expected.length === 0) return [];
+    if (spoken.length === 0) {
+      return expected.map(w => ({ expected: w, spoken: null, isCorrect: false, similarity: 0 }));
+    }
+
+    const aligned = this.alignWordSequences(expected, spoken);
+
+    return aligned.map(([exp, spk]) => {
+      if (!spk) return { expected: exp, spoken: null, isCorrect: false, similarity: 0 };
+      const sim = this.wordSimilarity(exp, spk);
+      return { expected: exp, spoken: spk, isCorrect: sim >= 0.80, similarity: sim };
     });
+  }
+
+  private alignWordSequences(
+    expected: string[],
+    transcribed: string[],
+  ): Array<[string, string | null]> {
+    const n = expected.length;
+    const m = transcribed.length;
+    const GAP = 1;
+
+    const subCost = (i: number, j: number): number => {
+      const sim = this.wordSimilarity(expected[i], transcribed[j]);
+      if (sim >= 0.80) return 0;
+      if (sim >= 0.50) return 1;
+      return 3;
+    };
+
+    // Build DP table
+    const dp: number[][] = Array.from({ length: n + 1 }, (_, i) =>
+      new Array(m + 1).fill(0),
+    );
+    for (let i = 0; i <= n; i++) dp[i][0] = i * GAP;
+    for (let j = 0; j <= m; j++) dp[0][j] = j * GAP;
+
+    for (let i = 1; i <= n; i++) {
+      for (let j = 1; j <= m; j++) {
+        dp[i][j] = Math.min(
+          dp[i - 1][j - 1] + subCost(i - 1, j - 1),
+          dp[i - 1][j] + GAP,
+          dp[i][j - 1] + GAP,
+        );
+      }
+    }
+
+    // Traceback — prefer diagonal (match/sub) over gap when costs tie
+    const result: Array<[string, string | null]> = [];
+    let i = n;
+    let j = m;
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && dp[i][j] === dp[i - 1][j - 1] + subCost(i - 1, j - 1)) {
+        result.unshift([expected[i - 1], transcribed[j - 1]]);
+        i--;
+        j--;
+      } else if (i > 0 && (j === 0 || dp[i][j] === dp[i - 1][j] + GAP)) {
+        result.unshift([expected[i - 1], null]); // expected word not found
+        i--;
+      } else {
+        j--; // extra spoken word — not an expected word, discard
+      }
+    }
+
+    return result;
   }
 
   private wordSimilarity(a: string, b: string): number {
@@ -143,5 +154,4 @@ export class SpeechRecognitionService {
   }
 }
 
-// Singleton instance
 export const speechRecognitionService = new SpeechRecognitionService();

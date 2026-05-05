@@ -23,13 +23,14 @@ import { Audio } from 'expo-av';
 import { COLORS } from '../../constants/theme';
 import { getFontFamily } from '../../../styles/fonts';
 import { getPronunciation } from '../../utils/pronunciationUtils';
-import { AzurePhonemeResult } from '../../services/azureSpeech';
+interface PhonemeResult {
+  phoneme: string;
+  accuracyScore: number;
+}
 
 interface WordFeedbackCardProps {
   word: string;
-  /** Per-phoneme scores from Azure Pronunciation Assessment */
-  phonemes?: AzurePhonemeResult[];
-  /** Overall word accuracy score (0–100) from Azure */
+  phonemes?: PhonemeResult[];
   accuracyScore?: number;
 }
 

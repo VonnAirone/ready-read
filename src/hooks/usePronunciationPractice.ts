@@ -5,12 +5,10 @@ import {
   ContentItem
 } from '../data/gameContent';
 import { speechRecognitionService } from '../services/speechRecognition';
+import { calculateScore } from '../services/scoring';
 import { WordMatchResult } from '../types';
 
 interface ScoreResult {
-  phonemeAccuracy: number;
-  stressIntonation: number;
-  vowelClarity: number;
   totalScore: number;
 }
 
@@ -84,15 +82,8 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
         throw new Error('No audio detected. Please try again and speak clearly into the microphone.');
       }
 
-      // Use Azure's real scores if available, otherwise fall back to text-based calculation
-      const scoreResult = transcriptionResult.azureScores
-        ? {
-            phonemeAccuracy: Math.round(transcriptionResult.azureScores.accuracyScore),
-            stressIntonation: Math.round(transcriptionResult.azureScores.fluencyScore),
-            vowelClarity: Math.round(transcriptionResult.azureScores.completenessScore),
-            totalScore: Math.round(transcriptionResult.azureScores.pronScore),
-          }
-        : calculatePronunciationScore(currentContent.text, transcription);
+      const totalScore = calculateScore(transcription, currentContent.text);
+      const scoreResult: ScoreResult = { totalScore };
       setScore(scoreResult);
 
       // Get word-level comparison
@@ -194,69 +185,3 @@ export function usePronunciationPractice(initialReaderLevel: 1 | 2 | 3 | 4) {
   };
 }
 
-// Helper function to calculate pronunciation score
-function calculatePronunciationScore(expectedText: string, actualText: string): ScoreResult {
-  const expectedWords = expectedText.toLowerCase().split(/\s+/);
-  const actualWords = actualText.toLowerCase().split(/\s+/);
-
-  let matchedWords = 0;
-  const minLength = Math.min(expectedWords.length, actualWords.length);
-
-  for (let i = 0; i < minLength; i++) {
-    if (expectedWords[i] === actualWords[i]) {
-      matchedWords++;
-    } else {
-      const similarity = calculateSimilarity(expectedWords[i], actualWords[i]);
-      if (similarity > 0.7) {
-        matchedWords += similarity;
-      }
-    }
-  }
-
-  const baseAccuracy = (matchedWords / expectedWords.length) * 100;
-
-  const phonemeAccuracy = Math.max(0, Math.min(100, baseAccuracy));
-  const stressIntonation = Math.max(0, Math.min(100, baseAccuracy));
-  const vowelClarity = Math.max(0, Math.min(100, baseAccuracy));
-
-  const totalScore = Math.round(
-    (phonemeAccuracy * 0.6) +
-    (stressIntonation * 0.25) +
-    (vowelClarity * 0.15)
-  );
-
-  return {
-    phonemeAccuracy: Math.round(phonemeAccuracy),
-    stressIntonation: Math.round(stressIntonation),
-    vowelClarity: Math.round(vowelClarity),
-    totalScore
-  };
-}
-
-function calculateSimilarity(str1: string, str2: string): number {
-  const longer = str1.length > str2.length ? str1 : str2;
-  const shorter = str1.length > str2.length ? str2 : str1;
-  if (longer.length === 0) return 1.0;
-  const editDistance = levenshteinDistance(longer, shorter);
-  return (longer.length - editDistance) / longer.length;
-}
-
-function levenshteinDistance(str1: string, str2: string): number {
-  const matrix: number[][] = [];
-  for (let i = 0; i <= str2.length; i++) matrix[i] = [i];
-  for (let j = 0; j <= str1.length; j++) matrix[0][j] = j;
-  for (let i = 1; i <= str2.length; i++) {
-    for (let j = 1; j <= str1.length; j++) {
-      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
-      }
-    }
-  }
-  return matrix[str2.length][str1.length];
-}

@@ -23,7 +23,8 @@ import { calculateScore } from "../../services/scoring";
 import { WordFeedbackCard } from "../../components/practice/WordFeedbackCard";
 import { MacroLevelPanel, MacroLevelRecord } from "../../components/practice/MacroLevelPanel";
 
-import { getAzureSpeechService, type AzureWordResult } from "../../services/azureSpeech";
+import { speechRecognitionService } from "../../services/speechRecognition";
+import { WordMatchResult } from "../../types";
 
 import {
   ASSESSMENT_ITEMS,
@@ -57,7 +58,7 @@ export default function RegularRoom({ route }: any) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [recognizedText, setRecognizedText] = useState("");
-  const [wordResults, setWordResults] = useState<AzureWordResult[]>([]);
+  const [wordResults, setWordResults] = useState<WordMatchResult[]>([]);
   const [score, setScore] = useState<number | null>(null);
   const [completed, setCompleted] = useState(false);
   const [attempts, setAttempts] = useState<number[]>([]);
@@ -1164,44 +1165,25 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     }
   };
 
-  // Azure Speech is initialized globally in App.tsx
+  // Google Speech is initialized globally in App.tsx
 
-  // 🔹 Azure Pronunciation Assessment transcription
-  const transcribeAudio = async (uri: string): Promise<{ transcript: string; pronScore: number; words: AzureWordResult[] }> => {
-    try {
-      let service;
-      try {
-        service = getAzureSpeechService();
-      } catch (err: any) {
-        console.error('Azure Speech service unavailable:', err.message);
-        throw new Error('Speech assessment service is unavailable. Please check your configuration and try again.');
-      }
-
-      const referenceText = currentAssessmentItem?.content || currentWord;
-
-      if (!referenceText) {
-        throw new Error('No reference text available for pronunciation assessment');
-      }
-
-      const result = await service.assessPronunciation(uri, referenceText);
-
-      if (!result.recognizedText || result.recognizedText.trim().length === 0) {
-        return { transcript: '', pronScore: 0, words: [] };
-      }
-
-      return { transcript: result.recognizedText, pronScore: result.pronScore, words: result.words };
-    } catch (err: any) {
-      // Distinguish API/network failures from empty-audio results so callers can
-      // show the right message (service error vs. no audio detected).
-      const message: string = err?.message ?? String(err);
-      const isApiError = message.includes('401') || message.includes('403')
-        || message.includes('network') || message.includes('timeout')
-        || message.includes('unavailable');
-      if (isApiError) {
-        throw err; // Re-throw so stopRecognition can show a service-specific alert
-      }
-      return { transcript: '', pronScore: 0, words: [] };
+  const transcribeAudio = async (uri: string): Promise<{ transcript: string; words: WordMatchResult[] }> => {
+    const referenceText = currentAssessmentItem?.content || currentWord;
+    if (!referenceText) {
+      throw new Error('No reference text available for pronunciation assessment');
     }
+
+    const result = await speechRecognitionService.transcribeAudio(uri, referenceText);
+
+    if (!result.success) {
+      const msg = result.error ?? '';
+      const isApiError = msg.includes('network') || msg.includes('timeout') || msg.includes('unavailable');
+      if (isApiError) throw new Error(msg);
+      return { transcript: '', words: [] };
+    }
+
+    const words = speechRecognitionService.getWordLevelResults(referenceText, result.text);
+    return { transcript: result.text, words };
   };
 
   // 🔹 Start recording
@@ -1329,12 +1311,12 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           return;
         }
         
-        const { transcript, pronScore, words } = await transcribeAudio(uri);
+        const { transcript, words } = await transcribeAudio(uri);
         setRecognizedText(transcript);
         setWordResults(words);
 
         if (transcript) {
-          const finalScore = pronScore > 0 ? Math.round(pronScore) : calculateScore(transcript, currentWord);
+          const finalScore = calculateScore(transcript, currentWord);
           setScore(finalScore);
           setCompleted(true);
           setAttempts(prev => [...prev, finalScore]);
@@ -1634,10 +1616,8 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     };
   };
 
-  // Words Azure explicitly flagged — errorType is the authoritative signal.
-  // Insertion (extra spoken word) excluded; it doesn't mean a target word was wrong.
   const mispronounced = completed && score !== null
-    ? wordResults.filter(w => w.errorType === 'Mispronunciation' || w.errorType === 'Omission')
+    ? wordResults.filter(w => !w.isCorrect)
     : [];
 
   // Auto-open the mispronunciation modal when analysis finishes with errors
@@ -1678,7 +1658,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   // 🔹 True when every word is rendered green — gates "Next" vs "Try Again"
   const allWordsGreen = completed && score !== null && (() => {
     if (wordResults.length > 0) {
-      return wordResults.every(w => w.accuracyScore >= PASS_THRESHOLD);
+      return wordResults.every(w => w.isCorrect);
     }
     // Fallback: no word-level results, use overall score
     if (currentContentType === 'words') return score >= PASS_THRESHOLD;
@@ -1730,27 +1710,12 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
 
     const originalWords = currentWord.split(/\s+/).filter(w => w);
 
-    // Use Azure word-level results when available — most accurate
     if (wordResults.length > 0) {
-      // Build a map from lowercase word → isCorrect based on Azure scores
-      const azureMap = new Map<string, boolean>();
-      wordResults.forEach(w => {
-        const key = w.word.toLowerCase();
-        // A word is correct if accuracy >= 70 and not a mispronunciation or omission
-        const correct = w.accuracyScore >= PASS_THRESHOLD && w.errorType !== 'Mispronunciation' && w.errorType !== 'Omission';
-        azureMap.set(key, correct);
-      });
-
-      return originalWords.map((word, index) => {
-        const clean = word.toLowerCase().replace(/[^\w]/g, '');
-        // Default to correct if Azure didn't return a result for this word
-        const isCorrect = azureMap.has(clean) ? azureMap.get(clean)! : true;
-        return (
-          <Text key={index} style={{ color: isCorrect ? '#4CAF50' : '#FF5722' }}>
-            {word}{' '}
-          </Text>
-        );
-      });
+      return wordResults.map((w, index) => (
+        <Text key={index} style={{ color: w.isCorrect ? '#4CAF50' : '#FF5722' }}>
+          {w.expected}{' '}
+        </Text>
+      ));
     }
 
     // Fallback: positional text comparison when Azure word results are unavailable
@@ -2527,9 +2492,8 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
                   {mispronounced.map((w, i) => (
                     <WordFeedbackCard
                       key={i}
-                      word={w.word}
-                      phonemes={w.phonemes}
-                      accuracyScore={w.accuracyScore}
+                      word={w.expected}
+                      accuracyScore={Math.round(w.similarity * 100)}
                     />
                   ))}
                 </ScrollView>
