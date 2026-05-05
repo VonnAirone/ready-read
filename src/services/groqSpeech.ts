@@ -26,11 +26,20 @@ export class GroqSpeechService {
   ): Promise<GroqTranscriptionResult> {
     const formData = new FormData();
 
-    formData.append('file', {
-      uri: audioUri,
-      type: this.getMimeType(audioUri),
-      name: `recording.${this.getExtension(audioUri)}`,
-    } as unknown as Blob);
+    if (audioUri.startsWith('blob:')) {
+      // Web recording — URI is a blob URL; fetch it as a real Blob for FormData
+      const res = await fetch(audioUri);
+      const blob = await res.blob();
+      const mimeType = blob.type || 'audio/webm';
+      const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+      formData.append('file', blob, `recording.${ext}`);
+    } else {
+      formData.append('file', {
+        uri: audioUri,
+        type: this.getMimeType(audioUri),
+        name: `recording.${this.getExtension(audioUri)}`,
+      } as unknown as Blob);
+    }
     formData.append('model', 'whisper-large-v3-turbo');
     // No language field — let Whisper auto-detect.
     // Locking to 'en' breaks transcription of Filipino/Tagalog content.

@@ -8,6 +8,7 @@ import {
   Alert,
   Modal,
   Animated,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -1223,7 +1224,17 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
         staysActiveInBackground: false,
       });
 
-      // Use MPEG_4/AAC on Android — DEFAULT format produces 3GPP/AMR which Azure cannot decode.
+      // Use MPEG_4/AAC on Android — DEFAULT format produces 3GPP/AMR which Groq cannot decode.
+      // On web, detect the best supported MIME type; passing {} caused Safari to throw
+      // NotSupportedError (no default codec) and prevented recording from starting at all.
+      const webMimeType =
+        Platform.OS === 'web' && typeof MediaRecorder !== 'undefined'
+          ? MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+            : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+            : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4'
+            : 'audio/webm'
+          : 'audio/webm';
+
       const { recording } = await Audio.Recording.createAsync({
         android: {
           extension: '.m4a',
@@ -1243,7 +1254,7 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
           linearPCMIsBigEndian: false,
           linearPCMIsFloat: false,
         },
-        web: {},
+        web: { mimeType: webMimeType, bitsPerSecond: 128000 },
       });
       
       recordingRef.current = recording;

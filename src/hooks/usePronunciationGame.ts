@@ -86,7 +86,7 @@ export function usePronunciationGame(props?: UsePronunciationGameProps) {
       }
 
       // Transcribe the audio
-      const transcriptionResult = await speechRecognitionService.transcribeAudio(result.uri);
+      const transcriptionResult = await speechRecognitionService.transcribeAudio(result.uri, currentItem.content);
 
       if (!transcriptionResult.success) {
         Alert.alert('Error', transcriptionResult.error || 'Failed to process audio');
