@@ -1,5 +1,5 @@
 import { Audio } from 'expo-av';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 interface RecordingResult {
   success: boolean;
@@ -13,6 +13,24 @@ export class AudioRecordingService {
 
   async initialize(): Promise<boolean> {
     try {
+      // On web, requestPermissionsAsync only queries the Permissions API and does
+      // NOT trigger the browser's microphone prompt. We must call getUserMedia
+      // directly to prompt the user, then release the stream immediately.
+      if (Platform.OS === 'web') {
+        if (!navigator?.mediaDevices?.getUserMedia) {
+          Alert.alert('Not Supported', 'Your browser does not support microphone recording.');
+          return false;
+        }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(t => t.stop());
+        } catch {
+          Alert.alert('Permission Required', 'Please allow microphone access in your browser and try again.');
+          return false;
+        }
+        return true;
+      }
+
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status !== 'granted') {
         Alert.alert('Permission Required', 'Please grant microphone permissions to use this feature.');
@@ -64,7 +82,12 @@ export class AudioRecordingService {
           linearPCMIsFloat: false,
         },
         web: {
-          mimeType: 'audio/webm',
+          mimeType: Platform.OS === 'web' && typeof MediaRecorder !== 'undefined'
+            ? MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+              : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+              : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4'
+              : 'audio/webm'
+            : 'audio/webm',
           bitsPerSecond: 128000,
         },
       });
