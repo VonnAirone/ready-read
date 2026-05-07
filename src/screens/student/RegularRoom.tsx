@@ -1177,10 +1177,10 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
     const result = await speechRecognitionService.transcribeAudio(uri, referenceText);
 
     if (!result.success) {
-      const msg = result.error ?? '';
-      const isApiError = msg.includes('network') || msg.includes('timeout') || msg.includes('unavailable');
-      if (isApiError) throw new Error(msg);
-      return { transcript: '', words: [] };
+      // Propagate all errors — previously only network/timeout errors were thrown,
+      // so Groq 4xx errors (e.g. unsupported format) were silently converted to
+      // "No Audio Detected" instead of showing the real failure reason.
+      throw new Error(result.error ?? 'Transcription failed');
     }
 
     const words = speechRecognitionService.getWordLevelResults(referenceText, result.text);
@@ -1272,55 +1272,53 @@ type ContentType = 'words' | 'sentences' | 'paragraphs';
   const stopRecognition = async () => {
     if (!userId) return Alert.alert("Error", "Login required to stop recording.");
     if (!isRecording) return; // ✅ Prevent double-tap
-    
+
     setIsRecording(false);
     setIsProcessing(true); // ✅ Show processing state
 
-    // Reset audio mode back to speaker playback — recording mode routes iOS audio
-    // through the earpiece (very quiet) and must be explicitly cleared after stopping.
-    try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: false,
-        playThroughEarpieceAndroid: false,
-        staysActiveInBackground: false,
-      });
-    } catch (err) { console.warn('[RegularRoom] audio mode reset failed:', err); }
-    
     try {
       if (!recordingRef.current) {
         Alert.alert("Error", "No active recording found.");
+        setIsProcessing(false);
         return;
       }
 
-      // ✅ Stop and get the URI
+      // Check duration BEFORE stopping so we know real audio was captured.
+      // Doing this before stopAndUnloadAsync gives us the live durationMillis.
+      let durationMs = 0;
+      try {
+        const status = await recordingRef.current.getStatusAsync();
+        durationMs = (status as any).durationMillis ?? 0;
+      } catch { /* ignore — fall through to size check */ }
+
+      // Stop the recording BEFORE resetting audio mode.
+      // Changing shouldDuckAndroid/allowsRecordingIOS while the MediaRecorder is
+      // still running can release audio focus on Android, causing the encoder to
+      // flush silence into the final frames of the file.
       await recordingRef.current.stopAndUnloadAsync();
       const uri = recordingRef.current.getURI();
       recordingRef.current = null; // ✅ Clear reference immediately
-      
-      
+
+      // Reset audio mode AFTER stopping — safe now that MediaRecorder is done.
+      // On iOS this clears the earpiece routing; on Android it releases duck focus.
+      try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: false,
+          playThroughEarpieceAndroid: false,
+          staysActiveInBackground: false,
+        });
+      } catch (err) { console.warn('[RegularRoom] audio mode reset failed:', err); }
+
+      // Guard: reject recordings that are too short to contain real speech.
+      if (durationMs > 0 && durationMs < 500) {
+        Alert.alert("Too Short", "Please hold the button and speak for at least 1 second.");
+        setIsProcessing(false);
+        return;
+      }
+
       if (uri) {
-        // Enhanced audio file validation
-        try {
-          const response = await fetch(uri);
-          const blob = await response.blob();
-          
-          
-          if (blob.size === 0) {
-            Alert.alert("Recording Issue", "Recording is empty. Please ensure you're speaking into the microphone and try again.");
-            return;
-          }
-          
-          if (blob.size < 1000) { // Less than 1KB is likely too short
-            Alert.alert("Recording Issue", `Recording seems very short (${Math.round(blob.size / 1024)}KB). Please speak longer and try again.`);
-            return;
-          }
-          
-        } catch (fileCheckError) {
-          Alert.alert("File Error", "Could not validate recorded audio. Please try recording again.");
-          return;
-        }
         
         const { transcript, words } = await transcribeAudio(uri);
         setRecognizedText(transcript);
